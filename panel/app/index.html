@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Panel · Snoker Art</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Pixelify+Sans:wght@400..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app/panel.css">
+  <script src="/vendor/lucide.js" defer></script>
+  <script type="module" src="app/js/panel.js"></script>
+</head>
+<body>
+  <div class="panel">
+    <!-- Menú lateral -->
+    <aside class="lateral" id="lateral">
+      <div class="lateral-cabecera">
+        <a class="lateral-marca" href="#resumen">
+          <span id="marca-nombre">Snoker Art</span>
+          <span class="lateral-sub">Panel</span>
+        </a>
+        <button class="boton-icono solo-movil" type="button" id="cerrar-menu" aria-label="Cerrar menú"><i data-lucide="x"></i></button>
+      </div>
+      <nav class="lateral-nav" aria-label="Secciones del panel">
+        <a href="#resumen" data-vista="resumen"><i data-lucide="layout-dashboard"></i><span>Resumen</span></a>
+        <a href="#obras" data-vista="obras"><i data-lucide="images"></i><span>Obras</span><span class="nav-cuenta" id="cuenta-obras"></span></a>
+        <a href="#subir" data-vista="subir"><i data-lucide="image-plus"></i><span>Subir obras</span></a>
+        <a href="#categorias" data-vista="categorias"><i data-lucide="tags"></i><span>Categorías</span></a>
+        <a href="#ajustes" data-vista="ajustes"><i data-lucide="settings"></i><span>Ajustes de la web</span></a>
+        <a href="#seguridad" data-vista="seguridad"><i data-lucide="shield-check"></i><span>Seguridad</span></a>
+      </nav>
+      <div class="lateral-pie">
+        <a class="lateral-enlace" href="/" target="_blank" rel="noopener"><i data-lucide="external-link"></i><span>Ver la web</span></a>
+        <button class="lateral-enlace" type="button" id="salir"><i data-lucide="log-out"></i><span>Cerrar sesión</span></button>
+      </div>
+    </aside>
+    <div class="velo" id="velo" hidden></div>
+
+    <!-- Contenido -->
+    <div class="principal">
+      <header class="cabecera">
+        <button class="boton-icono solo-movil" type="button" id="abrir-menu" aria-label="Abrir menú" aria-controls="lateral" aria-expanded="false"><i data-lucide="menu"></i></button>
+        <h1 class="cabecera-titulo" id="titulo-vista">Resumen</h1>
+        <div class="cabecera-acciones" id="acciones-vista"></div>
+      </header>
+      <main class="vista" id="vista" tabindex="-1" aria-live="polite" aria-busy="true"></main>
+    </div>
+  </div>
+
+  <!-- Editor de obra (panel lateral) -->
+  <dialog class="cajon" id="cajon" aria-labelledby="cajon-titulo"></dialog>
+
+  <!-- Confirmaciones -->
+  <dialog class="confirmar" id="confirmar" aria-labelledby="confirmar-titulo">
+    <form method="dialog" class="confirmar-cuerpo">
+      <h2 id="confirmar-titulo"></h2>
+      <p id="confirmar-texto"></p>
+      <div class="confirmar-acciones">
+        <button class="boton boton-tono" value="no" type="submit">Cancelar</button>
+        <button class="boton boton-peligro" value="si" type="submit" id="confirmar-si">Borrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="avisos" id="avisos" role="status" aria-live="polite"></div>
+</body>
+</html>

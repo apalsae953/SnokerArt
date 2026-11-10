@@ -1,0 +1,198 @@
+/* Pantalla de acceso al panel privado */
+:root {
+  --fondo: #181425;
+  --fondo-2: #1f1b33;
+  --superficie: #262b44;
+  --superficie-2: #3a4466;
+  --tierra: #5a6988;
+  --niebla: #8b9bb4;
+  --tinta: #f4f6ff;
+  --tinta-2: #c0cbdc;
+  --apagado: #9aa6c4;
+  --acento: #2ce8f5;
+  --acento-tinta: #0c1a2a;
+  --error: #ff6b7a;
+  --letra-pixel: 'Pixelify Sans', system-ui, sans-serif;
+  --letra-texto: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  background: var(--fondo);
+  color: var(--tinta);
+  font-family: var(--letra-texto);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, p { margin: 0; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
+.lucide { width: 1.15em; height: 1.15em; stroke-width: 2.25; flex: none; }
+
+.acceso {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  min-height: 100svh;
+}
+
+/* Lado izquierdo: el nombre y un sprite de la galería flotando */
+.acceso-arte {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 32px;
+  background-color: #221f38;
+  background-image: repeating-conic-gradient(#221f38 0 25%, #2a2747 0 50%);
+  background-size: 24px 24px;
+  overflow: hidden;
+}
+.acceso-marca {
+  font-family: var(--letra-pixel);
+  font-size: 24px;
+  font-weight: 700;
+}
+.acceso-objeto {
+  align-self: center;
+  margin: auto;
+}
+.acceso-objeto img {
+  image-rendering: pixelated;
+  animation: flotar 1.2s infinite;
+  animation-timing-function: steps(1, end);
+}
+@keyframes flotar {
+  0%, 100% { transform: translateY(0); }
+  25% { transform: translateY(-6px); }
+  50% { transform: translateY(-12px); }
+  75% { transform: translateY(-6px); }
+}
+
+.acceso-formulario {
+  display: grid;
+  align-items: center;
+  padding: 48px clamp(24px, 6vw, 96px);
+}
+
+.tarjeta-acceso {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 420px;
+}
+.tarjeta-acceso h1 {
+  font-family: var(--letra-pixel);
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.acceso-intro {
+  color: var(--tinta-2);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.campo label {
+  font-weight: 600;
+}
+.campo input {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border: 2px solid var(--superficie-2);
+  background: var(--fondo-2);
+  font-size: 17px;
+  transition: border-color 160ms;
+}
+.campo input:hover { border-color: var(--tierra); }
+.campo input:focus-visible { outline: none; border-color: var(--acento); }
+#codigo { text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; }
+.ayuda {
+  font-size: 14px;
+  color: var(--apagado);
+}
+
+.campo-password {
+  position: relative;
+}
+.campo-password input { padding-right: 56px; }
+.ver-password {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--apagado);
+}
+.ver-password:hover { color: var(--tinta); }
+
+.acceso-error {
+  padding: 12px 16px;
+  background: rgb(255 107 122 / 0.12);
+  color: var(--error);
+  font-weight: 500;
+}
+
+.boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 24px;
+  border: 0;
+  background: var(--acento);
+  color: var(--acento-tinta);
+  font-weight: 600;
+  font-size: 17px;
+  transition: background-color 160ms, transform 160ms;
+}
+.boton:hover { background: #7ff2fa; }
+.boton:active { transform: translateY(2px); }
+.boton:disabled { opacity: 0.6; cursor: progress; }
+
+.acceso-volver {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  color: var(--apagado);
+  text-decoration: none;
+}
+.acceso-volver:hover { color: var(--tinta); }
+
+/* Sacudida cuando la contraseña es incorrecta */
+.temblor { animation: temblor 360ms steps(6, end); }
+@keyframes temblor {
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@media (max-width: 760px) {
+  .acceso { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .acceso-arte { min-height: 200px; padding: 20px; }
+  .acceso-formulario { align-items: start; padding: 32px 20px; }
+  .tarjeta-acceso h1 { font-size: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "snoker-art",
+  "version": "1.0.0",
+  "description": "Portfolio de arte para videojuegos (pixel art, 2D y 3D) con panel privado de gestión.",
+  "private": true,
+  "type": "module",
+  "main": "servidor/index.js",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning servidor/index.js",
+    "dev": "node --watch --env-file-if-exists=.env --disable-warning=ExperimentalWarning servidor/index.js",
+    "cambiar-password": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/cambiar-password.js",
+    "restablecer-acceso": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/restablecer-acceso.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "lucide": "^1.71.0",
+    "multer": "^2.5.0",
+    "sharp": "^0.35.5"
+  }
+}

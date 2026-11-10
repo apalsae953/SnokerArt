@@ -1,0 +1,7 @@
+node_modules/
+# Datos privados: base de datos e imágenes subidas
+datos/
+subidas/
+.env
+.taste-skill/
+*.log

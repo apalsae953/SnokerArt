@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>%%TITULO%%</title>
+  <meta name="description" content="%%DESCRIPCION%%">
+  <meta name="theme-color" content="#181425">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:site_name" content="%%NOMBRE%%">
+  <meta property="og:title" content="%%TITULO%%">
+  <meta property="og:description" content="%%DESCRIPCION%%">
+  <meta property="og:image" content="%%OG_IMAGEN%%">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Pixelify+Sans:wght@400..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/estilos.css">
+  <script src="/vendor/lucide.js" defer></script>
+  <script type="module" src="/js/principal.js"></script>
+</head>
+<body>
+  <a class="saltar" href="#galeria">Saltar a la galería</a>
+
+  <header class="barra" id="barra">
+    <a class="barra-marca" href="#inicio" data-campo="nombre_sitio">%%NOMBRE%%</a>
+    <nav class="barra-nav" aria-label="Secciones">
+      <a href="#galeria">Galería</a>
+      <a href="#destacadas" data-si="destacadas">Destacadas</a>
+      <a href="#sobre-mi">Sobre mí</a>
+      <a href="#contacto" data-si="contacto">Contacto</a>
+    </nav>
+  </header>
+
+  <main id="contenido">
+    <!-- PORTADA: el nombre como monumento y los sprites como objetos recogibles -->
+    <section class="heroe" id="inicio" aria-labelledby="heroe-titulo">
+      <div class="heroe-cuerpo">
+        <div class="heroe-texto">
+          <p class="heroe-desc" data-campo="descripcion">%%DESCRIPCION%%</p>
+          <div class="heroe-acciones">
+            <a class="boton boton-acento" href="#galeria">
+              <i data-lucide="layout-grid" aria-hidden="true"></i>
+              Ver la galería
+            </a>
+            <a class="boton boton-tono" href="#contacto" data-si="contacto">Contactar</a>
+          </div>
+          <dl class="hud" id="hud" aria-label="Contadores de la galería"></dl>
+        </div>
+        <figure class="heroe-escena" id="heroe-escena" hidden>
+          <button class="heroe-escena-boton" type="button" id="heroe-escena-boton">
+            <img id="heroe-escena-img" alt="" class="pixelado" fetchpriority="high">
+          </button>
+          <figcaption id="heroe-escena-pie"></figcaption>
+        </figure>
+      </div>
+
+      <h1 class="monumento" id="heroe-titulo">
+        <span class="sr" data-campo="nombre_sitio">%%NOMBRE%%</span>
+        <span class="monumento-letras" id="monumento" aria-hidden="true"></span>
+      </h1>
+      <p class="recogidos" id="recogidos" aria-live="polite" hidden></p>
+    </section>
+
+    <!-- GALERÍA -->
+    <section class="galeria seccion" id="galeria" aria-labelledby="galeria-titulo">
+      <div class="seccion-cabecera">
+        <h2 class="titulo-seccion" id="galeria-titulo">Galería</h2>
+        <p class="galeria-cuenta" id="galeria-cuenta" aria-live="polite"></p>
+      </div>
+
+      <div class="filtros" role="search">
+        <div class="filtros-tecnica" id="filtro-tecnica" role="group" aria-label="Filtrar por técnica"></div>
+        <div class="filtros-categoria" id="filtro-categoria" role="group" aria-label="Filtrar por categoría"></div>
+        <div class="filtros-herramientas">
+          <label class="campo-buscar">
+            <i data-lucide="search" aria-hidden="true"></i>
+            <span class="sr">Buscar obras</span>
+            <input type="search" id="buscar" placeholder="Buscar por nombre o etiqueta" autocomplete="off">
+          </label>
+          <label class="campo-orden">
+            <span class="sr">Ordenar</span>
+            <select id="orden">
+              <option value="artista">Orden del artista</option>
+              <option value="recientes">Más recientes</option>
+              <option value="vistas">Más vistas</option>
+              <option value="titulo">Por nombre</option>
+            </select>
+            <i data-lucide="chevrons-up-down" aria-hidden="true"></i>
+          </label>
+        </div>
+      </div>
+
+      <div class="rejilla" id="rejilla" aria-busy="true"></div>
+      <div class="vacio" id="vacio" hidden>
+        <p>No hay ninguna obra que coincida con esos filtros.</p>
+        <button class="boton boton-tono" type="button" id="quitar-filtros">Quitar filtros</button>
+      </div>
+      <noscript><p class="vacio">Activa JavaScript para ver la galería.</p></noscript>
+    </section>
+
+    <!-- DESTACADAS: una obra grande con su paleta -->
+    <section class="vitrina seccion" id="destacadas" aria-labelledby="vitrina-titulo" hidden>
+      <h2 class="titulo-seccion vitrina-titulo" id="vitrina-titulo">Destacadas</h2>
+      <div class="vitrina-placa cuadricula" id="vitrina-placa">
+        <img id="vitrina-img" alt="" class="pixelado">
+      </div>
+      <div class="vitrina-info">
+        <div class="vitrina-pestanas" role="tablist" aria-label="Obras destacadas" id="vitrina-pestanas"></div>
+        <div class="vitrina-detalle" id="vitrina-detalle" role="tabpanel">
+          <h3 class="vitrina-nombre" id="vitrina-nombre"></h3>
+          <p class="vitrina-desc" id="vitrina-desc"></p>
+          <dl class="datos" id="vitrina-datos"></dl>
+          <div class="paleta" id="vitrina-paleta" aria-label="Paleta de colores"></div>
+        </div>
+        <div class="vitrina-acciones">
+          <button class="celda celda-tinta" type="button" id="vitrina-abrir">
+            <i data-lucide="scan-search" aria-hidden="true"></i> Abrir en el visor
+          </button>
+          <a class="celda celda-tono" id="vitrina-secundaria" href="#galeria">
+            <i data-lucide="layout-grid" aria-hidden="true"></i> Ver la galería
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- SOBRE MÍ -->
+    <section class="sobre seccion" id="sobre-mi" aria-labelledby="sobre-titulo">
+      <div class="sobre-lateral">
+        <h2 class="titulo-seccion" id="sobre-titulo">Sobre mí</h2>
+        <dl class="sobre-datos" id="sobre-datos"></dl>
+      </div>
+      <div class="sobre-texto">
+        <p class="declaracion">
+          <span class="sobre-avatar cuadricula" id="sobre-avatar" hidden><img alt="" class="pixelado" id="sobre-avatar-img"></span>
+          <span data-campo="sobre_mi"></span>
+        </p>
+        <p class="declaracion declaracion-suave" data-campo="sobre_mi_extra"></p>
+      </div>
+    </section>
+
+    <!-- CONTACTO -->
+    <section class="contacto seccion" id="contacto" aria-labelledby="contacto-titulo" hidden>
+      <h2 class="titulo-seccion" id="contacto-titulo">Contacto</h2>
+      <ul class="contacto-filas" id="contacto-filas"></ul>
+    </section>
+  </main>
+
+  <footer class="pie" id="pie">
+    <div class="pie-columnas">
+      <div>
+        <p class="pie-titulo">Secciones</p>
+        <ul>
+          <li><a href="#galeria">Galería</a></li>
+          <li><a href="#destacadas" data-si="destacadas">Destacadas</a></li>
+          <li><a href="#sobre-mi">Sobre mí</a></li>
+          <li><a href="#contacto" data-si="contacto">Contacto</a></li>
+        </ul>
+      </div>
+      <div id="pie-redes-col" hidden>
+        <p class="pie-titulo">Redes</p>
+        <ul id="pie-redes"></ul>
+      </div>
+      <div>
+        <p class="pie-titulo">Pantalla</p>
+        <button class="pie-interruptor" type="button" id="modo-crt" aria-pressed="false">
+          <i data-lucide="monitor" aria-hidden="true"></i>
+          <span>Modo CRT</span>
+        </button>
+      </div>
+      <div>
+        <p class="pie-titulo" data-campo="nombre_sitio">%%NOMBRE%%</p>
+        <p class="pie-texto" data-campo="lema"></p>
+      </div>
+    </div>
+    <p class="pie-marca" aria-hidden="true"><span id="pie-marca" data-campo="nombre_sitio">%%NOMBRE%%</span></p>
+    <p class="pie-legal">
+      <span id="pie-copy"></span>
+      <span data-campo="texto_pie"></span>
+    </p>
+  </footer>
+
+  <!-- VISOR: lupa de píxeles a pantalla completa -->
+  <div class="visor" id="visor" role="dialog" aria-modal="true" aria-labelledby="visor-titulo" hidden>
+    <div class="visor-escenario fondo-cuadricula" id="visor-escenario">
+      <div class="visor-lienzo" id="visor-lienzo">
+        <div class="visor-marco" id="visor-marco">
+          <img id="visor-img" alt="">
+          <div class="visor-rejilla" id="visor-rejilla" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="visor-controles" role="toolbar" aria-label="Controles del visor">
+      <button class="icono-boton" type="button" id="visor-anterior" aria-label="Obra anterior"><i data-lucide="chevron-left"></i></button>
+      <button class="icono-boton" type="button" id="visor-siguiente" aria-label="Obra siguiente"><i data-lucide="chevron-right"></i></button>
+      <span class="visor-separador" aria-hidden="true"></span>
+      <button class="icono-boton" type="button" id="visor-menos" aria-label="Alejar"><i data-lucide="zoom-out"></i></button>
+      <output class="visor-zoom" id="visor-zoom" aria-live="polite">x1</output>
+      <button class="icono-boton" type="button" id="visor-mas" aria-label="Acercar"><i data-lucide="zoom-in"></i></button>
+      <button class="icono-boton" type="button" id="visor-ajustar" aria-label="Ajustar a la pantalla"><i data-lucide="maximize"></i></button>
+      <span class="visor-separador" aria-hidden="true"></span>
+      <button class="icono-boton" type="button" id="visor-fondo" aria-label="Cambiar fondo"><i data-lucide="contrast"></i></button>
+      <button class="icono-boton" type="button" id="visor-rejilla-boton" aria-label="Mostrar rejilla de píxeles" aria-pressed="false"><i data-lucide="grid-3x3"></i></button>
+    </div>
+
+    <aside class="visor-info" aria-label="Detalles de la obra">
+      <button class="icono-boton visor-cerrar" type="button" id="visor-cerrar" aria-label="Cerrar visor"><i data-lucide="x"></i></button>
+      <p class="visor-meta" id="visor-meta"></p>
+      <h2 class="visor-titulo" id="visor-titulo"></h2>
+      <p class="visor-desc" id="visor-desc"></p>
+      <ul class="etiquetas" id="visor-etiquetas"></ul>
+      <dl class="datos" id="visor-datos"></dl>
+      <div class="paleta" id="visor-paleta" aria-label="Paleta de colores"></div>
+      <div class="visor-acciones">
+        <a class="boton boton-acento" id="visor-descargar" href="#" hidden>
+          <i data-lucide="download" aria-hidden="true"></i> Descargar
+        </a>
+        <button class="boton boton-tono" type="button" id="visor-compartir">
+          <i data-lucide="link" aria-hidden="true"></i> Copiar enlace
+        </button>
+      </div>
+      <p class="visor-atajos">Rueda o + / − para el zoom, arrastra para moverte, flechas para cambiar de obra.</p>
+    </aside>
+  </div>
+
+  <div class="avisos" id="avisos" role="status" aria-live="polite"></div>
+  <div class="crt-capa" aria-hidden="true"></div>
+</body>
+</html>
