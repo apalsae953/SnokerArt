@@ -172,10 +172,12 @@ function almacenBlob() {
         if (recordado) return recordado;
       }
       // En el almacén privado, la etiqueta de versión (ETag) se pide a la API
-      // con head(), como recomienda Vercel: la lectura sin caché no siempre la
-      // trae igual. Se pide ANTES de leer el archivo, así el archivo nunca es
-      // más antiguo que la etiqueta (si alguien guarda entre medias, el
-      // guardado con esa etiqueta falla y se repite, sin perder nada).
+      // con head(), como recomienda Vercel: la lectura sin caché la devuelve
+      // "débil" (W/"abc...") y put({ ifMatch }) solo acepta la normal ("abc..."),
+      // así que con ella todos los guardados se rechazaban. Se pide ANTES de
+      // leer el archivo, así el archivo nunca es más antiguo que la etiqueta
+      // (si alguien guarda entre medias, el guardado falla y se repite, sin
+      // perder nada).
       let versionApi = null;
       if (fresco && privado) {
         try {
@@ -193,9 +195,6 @@ function almacenBlob() {
         return null;
       }
       const texto = await new Response(resultado.stream).text();
-      if (versionApi && resultado.blob.etag !== versionApi) {
-        console.warn('[almacen] La lectura trae otra etiqueta que head():', JSON.stringify(resultado.blob.etag), JSON.stringify(versionApi));
-      }
       const etag = versionApi || resultado.blob.etag;
       if (!etag) throw new Error('Vercel Blob no ha devuelto la versión de contenido.json.');
       return { datos: JSON.parse(texto), etag };
@@ -222,7 +221,7 @@ function almacenBlob() {
         return resultado.etag;
       } catch (error) {
         if (error instanceof BlobPreconditionFailedError) {
-          console.warn('[almacen] Vercel rechaza el guardado: la versión ha cambiado.', JSON.stringify(etagEsperado), error.message);
+          console.warn('[almacen] Vercel rechaza el guardado: la versión ha cambiado.', error.message);
           throw new ConflictoAlmacen('El contenido ha cambiado.');
         }
         // Al crear: si otro proceso lo creó a la vez, también es un conflicto.
