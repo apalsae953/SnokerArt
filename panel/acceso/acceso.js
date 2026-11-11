@@ -1,4 +1,5 @@
-// Lógica de la pantalla de acceso: entrar o crear la contraseña la primera vez.
+// Lógica de la pantalla de acceso: entrar con la contraseña o explicar cómo
+// configurarla si todavía no existe.
 const $ = (s) => document.querySelector(s);
 
 async function enviar(ruta, datos) {
@@ -12,8 +13,8 @@ async function enviar(ruta, datos) {
   return cuerpo;
 }
 
-function mostrarError(id, mensaje, formulario) {
-  const el = $(id);
+function mostrarError(mensaje, formulario) {
+  const el = $('#error-entrar');
   el.textContent = mensaje;
   el.hidden = false;
   formulario.classList.remove('temblor');
@@ -38,7 +39,7 @@ function iniciarVerPassword() {
 // Un sprite de la galería flotando en el lado decorativo.
 async function pintarObjeto() {
   try {
-    const obras = await (await fetch('/api/obras')).json();
+    const { obras } = await (await fetch('/api/publico')).json();
     const sprites = obras.filter((o) => o.pixelado && o.ancho / o.alto < 1.5);
     const obra = sprites[Math.floor(Math.random() * sprites.length)];
     if (!obra) return;
@@ -59,55 +60,36 @@ async function iniciar() {
 
   const estado = await (await fetch('/api/acceso/estado')).json();
   if (estado.autenticado) return location.reload();
-  $('#minimo').textContent = estado.longitud_minima;
+  document.querySelectorAll('.minimo').forEach((el) => (el.textContent = estado.longitud_minima));
 
-  const formEntrar = $('#form-entrar');
-  const formConfigurar = $('#form-configurar');
-
-  if (!estado.configurado) {
-    formConfigurar.hidden = false;
-    const codigoUrl = new URLSearchParams(location.search).get('codigo');
-    if (codigoUrl) $('#codigo').value = codigoUrl;
-    ($('#codigo').value ? $('#nueva') : $('#codigo')).focus();
-  } else {
-    formEntrar.hidden = false;
-    $('#password').focus();
+  // Sin contraseña configurada: se explica cómo ponerla.
+  if (estado.clave !== 'ok') {
+    $('#sin-clave').hidden = false;
+    $('#sin-clave-motivo').textContent =
+      estado.clave === 'corta'
+        ? `La contraseña configurada (CLAVE_PANEL) es demasiado corta. Debe tener al menos ${estado.longitud_minima} caracteres.`
+        : 'El panel todavía no tiene contraseña. Se configura una sola vez:';
+    $(estado.en_vercel ? '#pasos-vercel' : '#pasos-local').hidden = false;
+    window.lucide?.createIcons();
+    return;
   }
 
-  formEntrar.addEventListener('submit', async (e) => {
+  const formulario = $('#form-entrar');
+  formulario.hidden = false;
+  $('#password').focus();
+
+  formulario.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const boton = formEntrar.querySelector('button[type="submit"]');
+    const boton = formulario.querySelector('button[type="submit"]');
     const password = $('#password').value;
-    if (!password) return mostrarError('#error-entrar', 'Escribe tu contraseña.', formEntrar);
+    if (!password) return mostrarError('Escribe tu contraseña.', formulario);
     boton.disabled = true;
     try {
       await enviar('/api/acceso/entrar', { password });
       location.reload();
     } catch (error) {
-      mostrarError('#error-entrar', error.message, formEntrar);
+      mostrarError(error.message, formulario);
       $('#password').select();
-      boton.disabled = false;
-    }
-  });
-
-  formConfigurar.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const boton = formConfigurar.querySelector('button[type="submit"]');
-    const codigo = $('#codigo').value.trim();
-    const nueva = $('#nueva').value;
-    if (!codigo) return mostrarError('#error-configurar', 'Escribe el código que aparece en la consola.', formConfigurar);
-    if (nueva.length < estado.longitud_minima) {
-      return mostrarError('#error-configurar', `La contraseña debe tener al menos ${estado.longitud_minima} caracteres.`, formConfigurar);
-    }
-    if (nueva !== $('#repetir').value) {
-      return mostrarError('#error-configurar', 'Las dos contraseñas no coinciden.', formConfigurar);
-    }
-    boton.disabled = true;
-    try {
-      await enviar('/api/acceso/configurar', { codigo, password: nueva });
-      location.reload();
-    } catch (error) {
-      mostrarError('#error-configurar', error.message, formConfigurar);
       boton.disabled = false;
     }
   });

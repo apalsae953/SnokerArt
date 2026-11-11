@@ -6,7 +6,6 @@ import {
   icono,
   pintarIconos,
   miniatura,
-  numero,
   aviso,
   avisoError,
   confirmar,
@@ -179,7 +178,6 @@ export async function montar({ contenedor, acciones, parametros, contexto }) {
       ),
       h('span', { class: 'celda-texto col-categoria', text: obra.categoria?.nombre || 'Sin categoría' }),
       h('span', { class: 'celda-texto col-tecnica', text: NOMBRES_TECNICA[obra.tecnica] }),
-      h('span', { class: 'celda-numero col-vistas', text: numero(obra.vistas) }),
       h(
         'label',
         { class: 'interruptor col-estado' },
@@ -239,7 +237,6 @@ export async function montar({ contenedor, acciones, parametros, contexto }) {
       h('span', { text: 'Obra' }),
       h('span', { class: 'col-categoria', text: 'Categoría' }),
       h('span', { class: 'col-tecnica', text: 'Técnica' }),
-      h('span', { class: 'col-vistas', text: 'Vistas' }),
       h('span', { class: 'col-estado', text: 'Estado' }),
       h('span')
     );

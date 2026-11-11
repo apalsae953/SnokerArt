@@ -1,173 +1,96 @@
-// Autenticación del panel privado: una sola persona (la dueña de la web) con
-// contraseña. Las contraseñas se guardan con scrypt y las sesiones con un token
-// aleatorio cuyo hash vive en la base de datos.
+// Acceso al panel privado sin base de datos:
+//  - La contraseña es la variable de entorno CLAVE_PANEL (en Vercel se pone en
+//    Settings > Environment Variables; en tu PC, en el archivo .env).
+//  - La sesión es una cookie firmada: contiene la fecha de caducidad y está
+//    firmada con una clave derivada de CLAVE_PANEL, así que nadie puede
+//    fabricarla. Si cambias la contraseña, todas las sesiones dejan de valer.
+//  - "Cerrar sesión en todos los dispositivos" sube un número de versión
+//    guardado en el contenido y las cookies antiguas dejan de servir.
 import crypto from 'node:crypto';
-import { db, ahora } from './db.js';
 import { config } from './config.js';
+import { leerContenido } from './contenido.js';
 
 const NOMBRE_COOKIE = 'snoker_sesion';
-const PARAMS_SCRYPT = { N: 16384, r: 8, p: 1 };
-export const LONGITUD_MINIMA = 10;
 
-// ---------------------------------------------------------------------------
-// Contraseñas
-// ---------------------------------------------------------------------------
+const clave = () => String(process.env.CLAVE_PANEL || '');
 
-export function hashearPassword(password) {
-  const sal = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, sal, 64, PARAMS_SCRYPT);
-  return `scrypt$${sal.toString('base64')}$${hash.toString('base64')}`;
+// Estado de la configuración de la contraseña (para avisar en la pantalla de acceso).
+export function estadoClave() {
+  const valor = clave();
+  if (!valor) return 'falta';
+  if (valor.length < config.longitudMinimaClave) return 'corta';
+  return 'ok';
 }
 
-export function verificarPassword(password, guardado) {
-  const [tipo, salB64, hashB64] = String(guardado || '').split('$');
-  if (tipo !== 'scrypt' || !salB64 || !hashB64) return false;
-  const esperado = Buffer.from(hashB64, 'base64');
-  const calculado = crypto.scryptSync(String(password), Buffer.from(salB64, 'base64'), esperado.length, PARAMS_SCRYPT);
-  return crypto.timingSafeEqual(esperado, calculado);
-}
-
-export function adminConfigurado() {
-  return !!db.prepare('SELECT 1 FROM admin WHERE id = 1').get();
-}
-
-export function guardarPasswordAdmin(password) {
-  db.prepare(
-    `INSERT INTO admin (id, hash, actualizado) VALUES (1, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET hash = excluded.hash, actualizado = excluded.actualizado`
-  ).run(hashearPassword(password), ahora());
-}
-
-export function hashAdmin() {
-  return db.prepare('SELECT hash FROM admin WHERE id = 1').get()?.hash;
-}
-
-export function validarPasswordNueva(password) {
-  if (typeof password !== 'string' || password.length < LONGITUD_MINIMA) {
-    return `La contraseña debe tener al menos ${LONGITUD_MINIMA} caracteres.`;
-  }
-  if (password.length > 200) return 'La contraseña es demasiado larga.';
-  return null;
+// Compara la contraseña escrita con la configurada sin revelar nada por el
+// tiempo que tarda la comparación.
+export function comprobarClave(intento) {
+  if (estadoClave() !== 'ok' || typeof intento !== 'string') return false;
+  const a = crypto.createHash('sha256').update(intento).digest();
+  const b = crypto.createHash('sha256').update(clave()).digest();
+  return crypto.timingSafeEqual(a, b);
 }
 
 // ---------------------------------------------------------------------------
-// Código de configuración inicial
-// Mientras no haya contraseña, el servidor genera un código de un solo uso y lo
-// muestra en la consola. Solo quien tenga acceso a la consola puede crear la
-// cuenta, aunque la web ya esté publicada.
+// Cookies firmadas
 // ---------------------------------------------------------------------------
 
-let codigoConfiguracion = null;
+const claveFirma = () => crypto.createHmac('sha256', 'snoker-art:firma-de-sesiones').update(clave()).digest();
+const firmar = (texto) => crypto.createHmac('sha256', claveFirma()).update(texto).digest('base64url');
 
-export function obtenerCodigoConfiguracion() {
-  if (adminConfigurado()) return null;
-  if (!codigoConfiguracion) {
-    codigoConfiguracion = crypto.randomBytes(4).toString('hex').toUpperCase();
-  }
-  return codigoConfiguracion;
-}
-
-export function comprobarCodigoConfiguracion(codigo) {
-  const actual = obtenerCodigoConfiguracion();
-  if (!actual) return false;
-  const recibido = Buffer.from(String(codigo || '').trim().toUpperCase());
-  const esperado = Buffer.from(actual);
-  return recibido.length === esperado.length && crypto.timingSafeEqual(recibido, esperado);
-}
-
-export function consumirCodigoConfiguracion() {
-  codigoConfiguracion = null;
-}
-
-// ---------------------------------------------------------------------------
-// Sesiones
-// ---------------------------------------------------------------------------
-
-const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
-
-function leerCookie(req, nombre) {
-  const cabecera = req.headers.cookie || '';
-  for (const parte of cabecera.split(';')) {
-    const [clave, ...resto] = parte.trim().split('=');
-    if (clave === nombre) return decodeURIComponent(resto.join('='));
+function leerCookie(req) {
+  for (const parte of (req.headers.cookie || '').split(';')) {
+    const [nombre, ...resto] = parte.trim().split('=');
+    if (nombre === NOMBRE_COOKIE) return decodeURIComponent(resto.join('='));
   }
   return null;
 }
 
-function escribirCookie(res, valor, maxAgeSegundos) {
-  const partes = [
-    `${NOMBRE_COOKIE}=${encodeURIComponent(valor)}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Strict',
-    `Max-Age=${maxAgeSegundos}`,
-  ];
+function escribirCookie(res, valor, segundos) {
+  const partes = [`${NOMBRE_COOKIE}=${encodeURIComponent(valor)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${segundos}`];
   if (config.cookieSegura) partes.push('Secure');
   res.append('Set-Cookie', partes.join('; '));
 }
 
-export function crearSesion(req, res) {
-  const token = crypto.randomBytes(32).toString('base64url');
+export function crearSesion(res, versionSesion) {
   const segundos = config.diasSesion * 24 * 60 * 60;
-  const expira = new Date(Date.now() + segundos * 1000).toISOString();
-  db.prepare(
-    'INSERT INTO sesiones (token_hash, creado, expira, ultimo_uso, ip, agente) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(hashToken(token), ahora(), expira, ahora(), req.ip || '', String(req.headers['user-agent'] || '').slice(0, 200));
-  escribirCookie(res, token, segundos);
+  const datos = { c: Date.now() + segundos * 1000, v: versionSesion, n: crypto.randomBytes(8).toString('base64url') };
+  const contenido = Buffer.from(JSON.stringify(datos)).toString('base64url');
+  escribirCookie(res, `${contenido}.${firmar(contenido)}`, segundos);
 }
 
-export function cerrarSesion(req, res) {
-  const token = leerCookie(req, NOMBRE_COOKIE);
-  if (token) db.prepare('DELETE FROM sesiones WHERE token_hash = ?').run(hashToken(token));
+export function cerrarSesion(res) {
   escribirCookie(res, '', 0);
 }
 
-// Devuelve el hash de la sesión válida o null. Limpia las sesiones caducadas.
-export function sesionActual(req) {
-  const token = leerCookie(req, NOMBRE_COOKIE);
-  if (!token) return null;
-  const hash = hashToken(token);
-  const fila = db.prepare('SELECT token_hash, expira, ultimo_uso FROM sesiones WHERE token_hash = ?').get(hash);
-  if (!fila) return null;
-  if (new Date(fila.expira) < new Date()) {
-    db.prepare('DELETE FROM sesiones WHERE token_hash = ?').run(hash);
-    return null;
+// Devuelve true si la cookie es auténtica, no ha caducado y no se ha cerrado
+// la sesión en todos los dispositivos.
+export async function sesionValida(req) {
+  if (estadoClave() !== 'ok') return false;
+  const cookie = leerCookie(req);
+  if (!cookie || !cookie.includes('.')) return false;
+  const [contenido, firma] = cookie.split('.');
+  const esperada = firmar(contenido);
+  if (!firma || firma.length !== esperada.length) return false;
+  if (!crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperada))) return false;
+  let datos;
+  try {
+    datos = JSON.parse(Buffer.from(contenido, 'base64url').toString('utf8'));
+  } catch {
+    return false;
   }
-  // Actualiza el último uso como mucho una vez por minuto para no escribir en cada petición.
-  if (Date.now() - new Date(fila.ultimo_uso).getTime() > 60_000) {
-    db.prepare('UPDATE sesiones SET ultimo_uso = ? WHERE token_hash = ?').run(ahora(), hash);
-  }
-  return hash;
-}
-
-export function listarSesiones(hashActual) {
-  db.prepare('DELETE FROM sesiones WHERE expira < ?').run(ahora());
-  return db
-    .prepare('SELECT token_hash, creado, ultimo_uso, ip, agente FROM sesiones ORDER BY ultimo_uso DESC')
-    .all()
-    .map((s) => ({
-      id: s.token_hash.slice(0, 12),
-      actual: s.token_hash === hashActual,
-      creado: s.creado,
-      ultimo_uso: s.ultimo_uso,
-      ip: s.ip,
-      agente: s.agente,
-    }));
-}
-
-export function cerrarOtrasSesiones(hashActual) {
-  return db.prepare('DELETE FROM sesiones WHERE token_hash != ?').run(hashActual || '').changes;
+  if (!datos.c || datos.c < Date.now()) return false;
+  const { ajustes } = await leerContenido();
+  return datos.v === ajustes.version_sesion;
 }
 
 // ---------------------------------------------------------------------------
 // Middlewares
 // ---------------------------------------------------------------------------
 
-// Protege las rutas de la API privada: responde 401 si no hay sesión válida.
-export function requiereSesion(req, res, next) {
-  const hash = sesionActual(req);
-  if (!hash) return res.status(401).json({ error: 'Necesitas iniciar sesión.' });
-  req.sesion = hash;
+// Protege la API privada: responde 401 si no hay sesión válida.
+export async function requiereSesion(req, res, next) {
+  if (!(await sesionValida(req))) return res.status(401).json({ error: 'Necesitas iniciar sesión.' });
   next();
 }
 
@@ -182,9 +105,8 @@ export function mismoOrigen(req, res, next) {
   const origen = req.headers.origin;
   if (origen) {
     try {
-      if (new URL(origen).host !== req.headers.host) {
-        return res.status(403).json({ error: 'Petición bloqueada por seguridad.' });
-      }
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      if (new URL(origen).host !== host) return res.status(403).json({ error: 'Petición bloqueada por seguridad.' });
     } catch {
       return res.status(403).json({ error: 'Petición bloqueada por seguridad.' });
     }
@@ -192,17 +114,18 @@ export function mismoOrigen(req, res, next) {
   next();
 }
 
-// Limita los intentos de inicio de sesión fallidos por IP: 5 fallos seguidos
-// bloquean esa IP durante 15 minutos.
+// Límite de intentos fallidos por IP: 5 fallos seguidos bloquean 15 minutos.
+// (En Vercel cada servidor lleva su propia cuenta; por eso además cada fallo
+// tarda casi un segundo en responder, para frenar a quien pruebe a lo loco.)
 const intentos = new Map();
 const MAX_FALLOS = 5;
 const BLOQUEO_MS = 15 * 60 * 1000;
 
 export function ipBloqueada(ip) {
   const registro = intentos.get(ip);
-  if (!registro) return 0;
-  if (registro.hasta && registro.hasta > Date.now()) return Math.ceil((registro.hasta - Date.now()) / 60000);
-  if (registro.hasta && registro.hasta <= Date.now()) intentos.delete(ip);
+  if (!registro?.hasta) return 0;
+  if (registro.hasta > Date.now()) return Math.ceil((registro.hasta - Date.now()) / 60000);
+  intentos.delete(ip);
   return 0;
 }
 
@@ -217,6 +140,4 @@ export function registrarFallo(ip) {
   return MAX_FALLOS - registro.fallos;
 }
 
-export function limpiarFallos(ip) {
-  intentos.delete(ip);
-}
+export const limpiarFallos = (ip) => intentos.delete(ip);

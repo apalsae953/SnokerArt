@@ -1,7 +1,10 @@
 node_modules/
-# Datos privados: base de datos e imágenes subidas
+# Datos del modo local (en Vercel todo está en Vercel Blob)
 datos/
 subidas/
+# Se genera al desplegar (npm run preparar)
+publico/vendor/
 .env
+.vercel
 .taste-skill/
 *.log

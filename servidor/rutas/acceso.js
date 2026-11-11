@@ -1,77 +1,56 @@
-// Rutas de acceso al panel: configuración inicial, entrar y salir.
+// Rutas de acceso al panel: comprobar estado, entrar y salir.
 import { Router } from 'express';
 import {
-  adminConfigurado,
-  comprobarCodigoConfiguracion,
-  consumirCodigoConfiguracion,
-  guardarPasswordAdmin,
-  validarPasswordNueva,
-  verificarPassword,
-  hashAdmin,
+  estadoClave,
+  comprobarClave,
   crearSesion,
   cerrarSesion,
-  sesionActual,
+  sesionValida,
   ipBloqueada,
   registrarFallo,
   limpiarFallos,
   mismoOrigen,
-  LONGITUD_MINIMA,
 } from '../auth.js';
+import { leerContenido } from '../contenido.js';
+import { config } from '../config.js';
 
 export const rutasAcceso = Router();
 rutasAcceso.use(mismoOrigen);
 
-// Dice si la cuenta existe y si la sesión actual es válida.
-rutasAcceso.get('/estado', (req, res) => {
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Dice si la contraseña está configurada y si la sesión actual es válida.
+rutasAcceso.get('/estado', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
-    configurado: adminConfigurado(),
-    autenticado: !!sesionActual(req),
-    longitud_minima: LONGITUD_MINIMA,
+    clave: estadoClave(),
+    autenticado: await sesionValida(req),
+    longitud_minima: config.longitudMinimaClave,
+    en_vercel: config.enVercel,
   });
 });
 
-// Primera vez: crea la contraseña usando el código que aparece en la consola.
-rutasAcceso.post('/configurar', (req, res) => {
-  if (adminConfigurado()) return res.status(409).json({ error: 'La cuenta ya está configurada.' });
-
-  const minutos = ipBloqueada(req.ip);
-  if (minutos) return res.status(429).json({ error: `Demasiados intentos. Prueba de nuevo en ${minutos} min.` });
-
-  const { codigo, password } = req.body || {};
-  if (!comprobarCodigoConfiguracion(codigo)) {
-    registrarFallo(req.ip);
-    return res.status(403).json({ error: 'El código no es correcto. Míralo en la consola donde arrancaste el servidor.' });
+rutasAcceso.post('/entrar', async (req, res) => {
+  if (estadoClave() !== 'ok') {
+    return res.status(409).json({ error: 'La contraseña del panel no está configurada (variable CLAVE_PANEL).' });
   }
-  const problema = validarPasswordNueva(password);
-  if (problema) return res.status(400).json({ error: problema });
-
-  guardarPasswordAdmin(password);
-  consumirCodigoConfiguracion();
-  limpiarFallos(req.ip);
-  crearSesion(req, res);
-  res.json({ ok: true });
-});
-
-rutasAcceso.post('/entrar', (req, res) => {
-  if (!adminConfigurado()) return res.status(409).json({ error: 'Primero hay que crear la contraseña.' });
-
   const minutos = ipBloqueada(req.ip);
   if (minutos) return res.status(429).json({ error: `Demasiados intentos. Prueba de nuevo en ${minutos} min.` });
 
-  const { password } = req.body || {};
-  if (typeof password !== 'string' || !verificarPassword(password, hashAdmin())) {
+  if (!comprobarClave(req.body?.password)) {
     const restantes = registrarFallo(req.ip);
+    await esperar(800);
     const aviso = restantes > 0 && restantes < 3 ? ` Te quedan ${restantes} intentos.` : '';
     return res.status(401).json({ error: `Contraseña incorrecta.${aviso}` });
   }
 
   limpiarFallos(req.ip);
-  crearSesion(req, res);
+  const { ajustes } = await leerContenido({ fresco: true });
+  crearSesion(res, ajustes.version_sesion);
   res.json({ ok: true });
 });
 
 rutasAcceso.post('/salir', (req, res) => {
-  cerrarSesion(req, res);
+  cerrarSesion(res);
   res.json({ ok: true });
 });

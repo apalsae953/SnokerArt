@@ -1,97 +1,60 @@
-// Vista "Seguridad": cambiar la contraseña y ver las sesiones abiertas.
-import { h, api, icono, pintarIconos, aviso, avisoError, campo, confirmar, fechaRelativa } from '../ui.js';
-
-// Describe el dispositivo a partir del identificador del navegador.
-function describirAgente(agente = '') {
-  const navegador = /Edg\//.test(agente)
-    ? 'Edge'
-    : /OPR\//.test(agente)
-      ? 'Opera'
-      : /Firefox\//.test(agente)
-        ? 'Firefox'
-        : /Chrome\//.test(agente)
-          ? 'Chrome'
-          : /Safari\//.test(agente)
-            ? 'Safari'
-            : 'Navegador';
-  const sistema = /Windows/.test(agente)
-    ? 'Windows'
-    : /Android/.test(agente)
-      ? 'Android'
-      : /iPhone|iPad/.test(agente)
-        ? 'iOS'
-        : /Mac OS/.test(agente)
-          ? 'macOS'
-          : /Linux/.test(agente)
-            ? 'Linux'
-            : 'otro sistema';
-  return { texto: `${navegador} en ${sistema}`, movil: /Android|iPhone|iPad|Mobile/.test(agente) };
-}
+// Vista "Seguridad": cómo cambiar la contraseña y cerrar la sesión en todos
+// los demás dispositivos. La contraseña vive en la variable CLAVE_PANEL (en
+// Vercel o en el archivo .env), no en la web, así que nadie puede cambiarla
+// desde el panel aunque entrara en él.
+import { h, api, icono, aviso, avisoError, confirmar } from '../ui.js';
 
 export async function montar({ contenedor, contexto }) {
-  // ------------------------------------------------------------ contraseña
-  const actual = h('input', { type: 'password', id: 'pw-actual', autocomplete: 'current-password' });
-  const nueva = h('input', { type: 'password', id: 'pw-nueva', autocomplete: 'new-password' });
-  const repetir = h('input', { type: 'password', id: 'pw-repetir', autocomplete: 'new-password' });
-  const formulario = h(
-    'form',
-    { class: 'formulario', novalidate: true, vars: { 'max-width': '520px' } },
-    campo({ etiqueta: 'Contraseña actual', control: actual, id: 'pw-actual' }),
-    campo({ etiqueta: 'Nueva contraseña', control: nueva, id: 'pw-nueva', ayuda: 'Mínimo 10 caracteres. Al cambiarla se cierran las sesiones abiertas en otros dispositivos.' }),
-    campo({ etiqueta: 'Repite la nueva contraseña', control: repetir, id: 'pw-repetir' }),
-    h('div', {}, h('button', { type: 'submit', class: 'boton boton-acento' }, icono('key-round'), 'Cambiar contraseña'))
-  );
-  formulario.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (nueva.value.length < 10) return aviso('La nueva contraseña debe tener al menos 10 caracteres.', 'error');
-    if (nueva.value !== repetir.value) return aviso('Las contraseñas nuevas no coinciden.', 'error');
-    try {
-      const r = await api('/password', { metodo: 'PUT', datos: { actual: actual.value, nueva: nueva.value } });
-      formulario.reset();
-      aviso(r.sesiones_cerradas ? `Contraseña cambiada. Se han cerrado ${r.sesiones_cerradas} sesiones más.` : 'Contraseña cambiada');
-      pintarSesiones();
-    } catch (error) {
-      avisoError(error);
-    }
-  });
+  const enVercel = !!contexto.info?.en_vercel;
+  const ruta = contexto.info?.ruta_panel || '/panel';
 
-  // ------------------------------------------------------------ sesiones
-  const listaSesiones = h('ul', { class: 'lista-sesiones' });
-  const cerrarOtras = h('button', { type: 'button', class: 'boton boton-tono' }, icono('log-out'), 'Cerrar las demás');
-  cerrarOtras.addEventListener('click', async () => {
-    const ok = await confirmar({ titulo: '¿Cerrar las demás sesiones?', texto: 'Tendrás que volver a entrar en esos dispositivos.', boton: 'Cerrar sesiones' });
+  const pasosVercel = h(
+    'ol',
+    { class: 'formulario', vars: { gap: '10px', 'padding-left': '1.3em', 'list-style': 'decimal' } },
+    h('li', {}, 'En vercel.com abre tu proyecto, ', h('strong', { text: 'Settings' }), ' y luego ', h('strong', { text: 'Environment Variables' }), '.'),
+    h('li', {}, 'Edita la variable ', h('code', { text: 'CLAVE_PANEL' }), ' y escribe la nueva contraseña (mínimo 10 caracteres).'),
+    h('li', {}, 'En ', h('strong', { text: 'Deployments' }), ' pulsa ', h('strong', { text: 'Redeploy' }), ' en el último despliegue.'),
+    h('li', {}, 'Al cambiarla se cierran todas las sesiones abiertas y tendrás que entrar de nuevo.')
+  );
+  const pasosLocal = h(
+    'ol',
+    { class: 'formulario', vars: { gap: '10px', 'padding-left': '1.3em', 'list-style': 'decimal' } },
+    h('li', {}, 'Abre el archivo ', h('code', { text: '.env' }), ' de la carpeta del proyecto.'),
+    h('li', {}, 'Cambia la línea ', h('code', { text: 'CLAVE_PANEL=...' }), ' por la nueva contraseña (mínimo 10 caracteres).'),
+    h('li', {}, 'Reinicia el servidor. Se cerrarán todas las sesiones abiertas.')
+  );
+
+  const cerrarTodas = h('button', { type: 'button', class: 'boton boton-tono' }, icono('log-out'), 'Cerrar sesión en los demás dispositivos');
+  cerrarTodas.addEventListener('click', async () => {
+    const ok = await confirmar({
+      titulo: '¿Cerrar las demás sesiones?',
+      texto: 'Cualquier otro ordenador o móvil donde hayas entrado al panel tendrá que volver a poner la contraseña. Tú sigues dentro.',
+      boton: 'Cerrar sesiones',
+    });
     if (!ok) return;
     try {
-      const r = await api('/sesiones/otras', { metodo: 'DELETE' });
-      aviso(`${r.cerradas} sesiones cerradas`);
-      pintarSesiones();
+      await api('/sesiones/cerrar-todas', { metodo: 'POST' });
+      aviso('Listo: solo sigue abierta esta sesión');
     } catch (error) {
       avisoError(error);
     }
   });
 
-  async function pintarSesiones() {
-    const sesiones = await api('/sesiones');
-    listaSesiones.replaceChildren(
-      ...sesiones.map((s) => {
-        const agente = describirAgente(s.agente);
-        return h(
-          'li',
-          {},
-          icono(agente.movil ? 'smartphone' : 'monitor'),
-          h('div', {}, h('span', { class: 'titulo', text: agente.texto }), h('small', { text: `Último uso ${fechaRelativa(s.ultimo_uso)} · IP ${s.ip || 'desconocida'}` })),
-          s.actual ? h('span', { class: 'etiqueta-actual', text: 'Esta sesión' }) : null
-        );
-      })
-    );
-    cerrarOtras.hidden = sesiones.length < 2;
-    pintarIconos();
-  }
-
-  const ruta = contexto.info?.ruta_panel || '/panel';
   contenedor.append(
-    h('section', { class: 'bloque' }, h('div', { class: 'bloque-cabecera' }, h('h2', { class: 'bloque-titulo', text: 'Contraseña' })), formulario),
-    h('section', { class: 'bloque' }, h('div', { class: 'bloque-cabecera' }, h('h2', { class: 'bloque-titulo', text: 'Sesiones abiertas' }), cerrarOtras), listaSesiones),
+    h(
+      'section',
+      { class: 'bloque' },
+      h('div', { class: 'bloque-cabecera' }, h('h2', { class: 'bloque-titulo', text: 'Cambiar la contraseña' })),
+      h('p', { class: 'bloque-nota', vars: { 'margin-bottom': '16px' }, text: 'La contraseña no se guarda en la web sino en la configuración del servidor. Así, aunque alguien entrara en el panel, no podría cambiarla.' }),
+      enVercel ? pasosVercel : pasosLocal
+    ),
+    h(
+      'section',
+      { class: 'bloque' },
+      h('div', { class: 'bloque-cabecera' }, h('h2', { class: 'bloque-titulo', text: 'Sesiones' })),
+      h('p', { class: 'bloque-nota', vars: { 'margin-bottom': '16px' }, text: 'Cada sesión dura 14 días. Si entraste desde un ordenador que no es tuyo, ciérrala desde aquí.' }),
+      cerrarTodas
+    ),
     h(
       'section',
       { class: 'bloque' },
@@ -99,11 +62,10 @@ export async function montar({ contenedor, contexto }) {
       h(
         'ul',
         { class: 'formulario', vars: { gap: '12px' } },
-        h('li', {}, 'Tu panel está en ', h('code', { text: `${ruta}/` }), '. Para que sea más difícil de encontrar, cambia la ruta en el archivo ', h('code', { text: '.env' }), ' con ', h('code', { text: 'RUTA_PANEL=/otra-ruta-secreta' }), '.'),
-        h('li', {}, 'Si olvidas la contraseña, ejecuta ', h('code', { text: 'npm run cambiar-password' }), ' en la carpeta del proyecto.'),
-        h('li', {}, 'Tras 5 intentos fallidos de contraseña, esa conexión queda bloqueada 15 minutos.')
+        h('li', {}, 'Tu panel está en ', h('code', { text: `${ruta}/` }), '. Para que sea más difícil de encontrar, crea la variable ', h('code', { text: 'RUTA_PANEL' }), ' con otra ruta, por ejemplo ', h('code', { text: '/taller-secreto' }), '.'),
+        h('li', {}, 'Tras 5 intentos fallidos de contraseña, esa conexión queda bloqueada 15 minutos.'),
+        h('li', {}, 'Usa una contraseña que no uses en ningún otro sitio.')
       )
     )
   );
-  await pintarSesiones();
 }

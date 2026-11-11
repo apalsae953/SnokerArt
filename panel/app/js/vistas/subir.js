@@ -17,6 +17,37 @@ import {
 } from '../ui.js';
 
 const TIPOS = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+// Tamaño máximo que se acepta en el navegador antes de optimizar.
+const MAX_ORIGINAL = 60 * 1048576;
+
+// Si una imagen pesa más de lo que admite el servidor (en Vercel, 4,3 MB), se
+// convierte a WEBP de alta calidad en el propio navegador y, si hace falta,
+// se reduce un poco. Solo les pasa a renders o ilustraciones grandes: el pixel
+// art pesa muchísimo menos y se sube intacto.
+async function optimizarSiHaceFalta(archivo, maxBytes) {
+  if (archivo.size <= maxBytes) return archivo;
+  if (archivo.type === 'image/gif') {
+    throw new Error(`Las animaciones GIF deben pesar menos de ${formatoPeso(maxBytes)}.`);
+  }
+  const mapa = await createImageBitmap(archivo);
+  let escala = 1;
+  let calidad = 0.92;
+  for (let intento = 0; intento < 6; intento++) {
+    const lienzo = document.createElement('canvas');
+    lienzo.width = Math.round(mapa.width * escala);
+    lienzo.height = Math.round(mapa.height * escala);
+    lienzo.getContext('2d').drawImage(mapa, 0, 0, lienzo.width, lienzo.height);
+    const blob = await new Promise((resolver) => lienzo.toBlob(resolver, 'image/webp', calidad));
+    if (blob && blob.size <= maxBytes) {
+      mapa.close();
+      return new File([blob], archivo.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' });
+    }
+    calidad = Math.max(0.8, calidad - 0.04);
+    escala *= 0.85;
+  }
+  mapa.close();
+  throw new Error('No se ha podido reducir la imagen lo suficiente. Prueba a exportarla más pequeña.');
+}
 
 export async function montar({ contenedor, contexto }) {
   const categorias = await api('/categorias');
@@ -40,7 +71,7 @@ export async function montar({ contenedor, contexto }) {
     h('p', {
       class: 'ayuda',
       id: 'ayuda-subida',
-      text: `PNG, JPG, WEBP o GIF, hasta ${Math.round(maxBytes / 1048576)} MB cada uno. También puedes pegar una imagen copiada con Ctrl+V.`,
+      text: `PNG, JPG, WEBP o GIF. Las imágenes de más de ${formatoPeso(maxBytes)} se optimizan solas a WEBP antes de subirlas (los GIF no). También puedes pegar una imagen copiada con Ctrl+V.`,
     })
   );
   zona.addEventListener('click', () => selector.click());
@@ -113,8 +144,9 @@ export async function montar({ contenedor, contexto }) {
         rechazados++;
         continue;
       }
-      if (archivo.size > maxBytes) {
-        aviso(`"${archivo.name}" pesa ${formatoPeso(archivo.size)} y el máximo es ${formatoPeso(maxBytes)}.`, 'error');
+      if (archivo.size > MAX_ORIGINAL || (archivo.type === 'image/gif' && archivo.size > maxBytes)) {
+        const maximo = archivo.type === 'image/gif' ? maxBytes : MAX_ORIGINAL;
+        aviso(`"${archivo.name}" pesa ${formatoPeso(archivo.size)} y el máximo es ${formatoPeso(maximo)}.`, 'error');
         continue;
       }
       cola.push(crearItem(archivo));
@@ -130,6 +162,7 @@ export async function montar({ contenedor, contexto }) {
 
     const img = h('img', { src: url, alt: '' });
     const info = h('div', { class: 'item-cola-info' }, h('span', { text: archivo.name }), h('span', { text: formatoPeso(archivo.size) }));
+    if (archivo.size > maxBytes) info.append(h('span', { text: 'Se optimizará a WEBP al subirla' }));
     // Se miden las dimensiones para sugerir si es pixel art.
     img.addEventListener('load', () => {
       const pequena = Math.max(img.naturalWidth, img.naturalHeight) <= 1024;
@@ -198,7 +231,11 @@ export async function montar({ contenedor, contexto }) {
     item.barra.style.setProperty('--avance', `${Math.round(item.progreso * 100)}%`);
     const textos = {
       pendiente: '',
-      subiendo: item.progreso < 1 ? `Subiendo... ${Math.round(item.progreso * 100)}%` : 'Procesando la imagen...',
+      subiendo: item.optimizando
+        ? 'Optimizando la imagen para que quepa...'
+        : item.progreso < 1
+          ? `Subiendo... ${Math.round(item.progreso * 100)}%`
+          : 'Procesando la imagen...',
       hecho: `Subida${item.obra?.pixelado ? ` · pixel art detectado${item.obra.escala > 1 ? ` (exportado a x${item.obra.escala})` : ''}` : ''}`,
       error: item.error,
     };
@@ -235,17 +272,20 @@ export async function montar({ contenedor, contexto }) {
     for (const item of cola.filter((i) => i.estado === 'pendiente' || i.estado === 'error')) {
       item.estado = 'subiendo';
       item.progreso = 0;
+      item.optimizando = item.archivo.size > maxBytes;
       pintarEstado(item);
-      const datos = new FormData();
-      datos.append('archivo', item.archivo);
-      datos.append('titulo', item.campos.titulo.value.trim() || tituloDesdeArchivo(item.archivo.name));
-      datos.append('descripcion', item.campos.descripcion.value.trim());
-      datos.append('categoria_id', item.campos.categoria.value);
-      datos.append('tecnica', item.campos.tecnica.value);
-      datos.append('publicada', publicar ? '1' : '0');
-      datos.append('destacada', item.opciones.destacada.querySelector('input').checked ? '1' : '0');
-      datos.append('descargable', item.opciones.descargable.querySelector('input').checked ? '1' : '0');
       try {
+        const archivo = await optimizarSiHaceFalta(item.archivo, maxBytes);
+        item.optimizando = false;
+        const datos = new FormData();
+        datos.append('archivo', archivo);
+        datos.append('titulo', item.campos.titulo.value.trim() || tituloDesdeArchivo(item.archivo.name));
+        datos.append('descripcion', item.campos.descripcion.value.trim());
+        datos.append('categoria_id', item.campos.categoria.value);
+        datos.append('tecnica', item.campos.tecnica.value);
+        datos.append('publicada', publicar ? '1' : '0');
+        datos.append('destacada', item.opciones.destacada.querySelector('input').checked ? '1' : '0');
+        datos.append('descargable', item.opciones.descargable.querySelector('input').checked ? '1' : '0');
         item.obra = await subirArchivo('/obras', datos, (p) => {
           item.progreso = p;
           pintarEstado(item);

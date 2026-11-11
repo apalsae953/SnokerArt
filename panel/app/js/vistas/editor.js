@@ -65,8 +65,6 @@ export function abrirEditor(obraInicial, { categorias, alGuardar, alBorrar }) {
           h('dd', { text: numero(obra.num_colores) }),
           h('dt', { text: 'Archivo' }),
           h('dd', { text: `${obra.formato.toUpperCase()} · ${formatoPeso(obra.peso)}` }),
-          h('dt', { text: 'Vistas' }),
-          h('dd', { text: numero(obra.vistas) }),
           h('dt', { text: 'Subida' }),
           h('dd', { text: fechaRelativa(obra.creado) })
         ),

@@ -40,33 +40,22 @@
         <a class="acceso-volver" href="/"><i data-lucide="arrow-left" aria-hidden="true"></i> Volver a la web</a>
       </form>
 
-      <!-- Configuración inicial -->
-      <form id="form-configurar" class="tarjeta-acceso" hidden novalidate>
-        <h1>Crea tu contraseña</h1>
-        <p class="acceso-intro">Es la primera vez que entras. Escribe el código que aparece en la consola donde arrancaste el servidor y elige tu contraseña.</p>
-        <div class="campo">
-          <label for="codigo">Código de configuración</label>
-          <input id="codigo" name="codigo" type="text" autocomplete="off" spellcheck="false" required aria-describedby="ayuda-codigo">
-          <p class="ayuda" id="ayuda-codigo">Ocho letras y números, por ejemplo A1B2C3D4.</p>
-        </div>
-        <div class="campo">
-          <label for="nueva">Contraseña</label>
-          <div class="campo-password">
-            <input id="nueva" name="nueva" type="password" autocomplete="new-password" required aria-describedby="ayuda-nueva">
-            <button type="button" class="ver-password" aria-label="Mostrar contraseña" data-para="nueva"><i data-lucide="eye"></i></button>
-          </div>
-          <p class="ayuda" id="ayuda-nueva">Mínimo <span id="minimo">10</span> caracteres. Una frase corta es fácil de recordar y difícil de adivinar.</p>
-        </div>
-        <div class="campo">
-          <label for="repetir">Repite la contraseña</label>
-          <input id="repetir" name="repetir" type="password" autocomplete="new-password" required>
-        </div>
-        <p class="acceso-error" id="error-configurar" role="alert" hidden></p>
-        <button class="boton" type="submit">
-          <i data-lucide="key-round" aria-hidden="true"></i>
-          <span>Crear contraseña y entrar</span>
-        </button>
-      </form>
+      <!-- Falta configurar la contraseña -->
+      <section id="sin-clave" class="tarjeta-acceso" hidden>
+        <h1>Falta la contraseña</h1>
+        <p class="acceso-intro" id="sin-clave-motivo">El panel todavía no tiene contraseña.</p>
+        <ol class="pasos" id="pasos-vercel" hidden>
+          <li>Entra en tu proyecto en <strong>vercel.com</strong> y abre <strong>Settings</strong>, <strong>Environment Variables</strong>.</li>
+          <li>Añade una variable llamada <code>CLAVE_PANEL</code> con tu contraseña (mínimo <span class="minimo">10</span> caracteres).</li>
+          <li>Ve a <strong>Deployments</strong> y pulsa <strong>Redeploy</strong> en el último despliegue.</li>
+        </ol>
+        <ol class="pasos" id="pasos-local" hidden>
+          <li>Abre el archivo <code>.env</code> de la carpeta del proyecto (o copia <code>.env.example</code> como <code>.env</code>).</li>
+          <li>Escribe <code>CLAVE_PANEL=tu-contraseña</code> (mínimo <span class="minimo">10</span> caracteres).</li>
+          <li>Reinicia el servidor con <code>npm start</code>.</li>
+        </ol>
+        <a class="acceso-volver" href="/"><i data-lucide="arrow-left" aria-hidden="true"></i> Volver a la web</a>
+      </section>
     </div>
   </main>
 </body>

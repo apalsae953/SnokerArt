@@ -167,6 +167,24 @@ button { cursor: pointer; }
 .boton:active { transform: translateY(2px); }
 .boton:disabled { opacity: 0.6; cursor: progress; }
 
+.pasos {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding-left: 1.3em;
+  color: var(--tinta-2);
+}
+.pasos strong { color: var(--tinta); }
+code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--superficie);
+  color: var(--tinta);
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 14px;
+}
+
 .acceso-volver {
   display: inline-flex;
   align-items: center;

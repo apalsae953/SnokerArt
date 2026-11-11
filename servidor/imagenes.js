@@ -3,11 +3,9 @@
 //  - detecta si es pixel art escalado (por ejemplo un sprite de 32x32 exportado a x4),
 //  - extrae la paleta de colores,
 //  - genera una miniatura ligera solo cuando la imagen es grande.
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import sharp from 'sharp';
-import { config } from './config.js';
+import { almacen } from './almacen.js';
 
 const FORMATOS = { png: 'png', jpeg: 'jpg', webp: 'webp', gif: 'gif' };
 const MAX_LADO = 12000;
@@ -93,9 +91,9 @@ function extraerPaleta(datos) {
   return { paleta: elegidos.map((c) => aHex(...c)), numColores, transparente };
 }
 
-// Procesa el buffer subido y guarda los archivos en /subidas.
-// Devuelve los datos que se guardan en la base de datos.
-export async function procesarImagen(buffer) {
+// Procesa la imagen subida, la guarda en el almacén y devuelve sus datos
+// (direcciones de la imagen y la miniatura, tamaño, escala, paleta...).
+export async function guardarImagen(buffer) {
   let meta;
   try {
     meta = await sharp(buffer, { animated: true }).metadata();
@@ -113,9 +111,8 @@ export async function procesarImagen(buffer) {
     throw new ErrorImagen(`La imagen es demasiado grande (máximo ${MAX_LADO} px por lado).`);
   }
 
-  await fs.mkdir(config.dirSubidas, { recursive: true });
   const id = crypto.randomBytes(10).toString('hex');
-  const archivo = `${id}.${extension}`;
+  const tipos = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 
   // Los JPG se vuelven a codificar para quitar datos EXIF (por ejemplo la
   // ubicación GPS de una foto de móvil). PNG, GIF y WEBP se guardan tal cual
@@ -124,7 +121,6 @@ export async function procesarImagen(buffer) {
   if (meta.format === 'jpeg') {
     original = await sharp(buffer).rotate().jpeg({ quality: 92, mozjpeg: true }).toBuffer();
   }
-  await fs.writeFile(path.join(config.dirSubidas, archivo), original);
 
   // Análisis de píxeles sobre el primer fotograma. Para imágenes enormes se
   // trabaja con una versión reducida (la escala pixel solo se busca si cabe).
@@ -148,16 +144,23 @@ export async function procesarImagen(buffer) {
   // y un tamaño modesto (los sprites a tamaño real).
   const pixelado = escala > 1 || (analisis.numColores <= 96 && Math.max(ancho, alto) <= 1024);
 
-  // Miniatura solo si la imagen es grande y no es animada.
+  // Se sube el original y, si la imagen es grande y no animada, una miniatura
+  // ligera para que la galería cargue rápido.
+  const archivo = await almacen.subirArchivo(`${id}.${extension}`, original, tipos[extension]);
   let miniatura = null;
   const limite = pixelado ? LADO_MINIATURA * 2 : LADO_MINIATURA;
   if (!animado && Math.max(ancho, alto) > limite) {
-    miniatura = `${id}-mini.webp`;
-    await sharp(buffer)
+    const bufferMini = await sharp(buffer)
       .rotate()
       .resize(limite, limite, { fit: 'inside', kernel: pixelado ? 'nearest' : 'lanczos3' })
       .webp({ quality: 86 })
-      .toFile(path.join(config.dirSubidas, miniatura));
+      .toBuffer();
+    try {
+      miniatura = await almacen.subirArchivo(`${id}-mini.webp`, bufferMini, 'image/webp');
+    } catch (error) {
+      await borrarImagenes(archivo);
+      throw error;
+    }
   }
 
   return {
@@ -176,25 +179,15 @@ export async function procesarImagen(buffer) {
   };
 }
 
-// Borra los archivos de una obra (original y miniatura). No falla si ya no existen.
-export async function borrarArchivos(...nombres) {
-  for (const nombre of nombres) {
-    if (!nombre || nombre.includes('/') || nombre.includes('\\') || nombre.includes('..')) continue;
-    await fs.rm(path.join(config.dirSubidas, nombre), { force: true });
-  }
-}
-
-// Espacio total ocupado por las subidas, en bytes.
-export async function espacioUsado() {
-  try {
-    const nombres = await fs.readdir(config.dirSubidas);
-    let total = 0;
-    for (const nombre of nombres) {
-      const info = await fs.stat(path.join(config.dirSubidas, nombre));
-      if (info.isFile()) total += info.size;
+// Borra del almacén las imágenes indicadas (original y miniatura). Si alguna
+// ya no existe no pasa nada: nunca debe impedir guardar los cambios.
+export async function borrarImagenes(...urls) {
+  for (const url of urls) {
+    if (!url || url.startsWith('/semilla/')) continue;
+    try {
+      await almacen.borrarArchivo(url);
+    } catch (error) {
+      console.error('[almacen] No se pudo borrar', url, error.message);
     }
-    return total;
-  } catch {
-    return 0;
   }
 }

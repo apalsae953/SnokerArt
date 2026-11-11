@@ -7,22 +7,11 @@ import { crearVisor } from './visor.js';
 import { rellenarTextos, pintarSobre, pintarContacto, pintarPie } from './secciones.js';
 import { iniciarEntradas, iniciarBarra, iniciarCrt } from './extras.js';
 
-// Cada obra cuenta una visita por sesión del navegador.
-function registrarVista(obra) {
-  const clave = `vista-${obra.id}`;
-  try {
-    if (sessionStorage.getItem(clave)) return;
-    sessionStorage.setItem(clave, '1');
-  } catch {
-    /* sin almacenamiento: se cuenta igualmente, el servidor filtra repeticiones */
-  }
-  fetch(`/api/obras/${obra.id}/vista`, { method: 'POST' }).catch(() => {});
-}
-
 async function iniciar() {
   let sitio, obras, categorias;
   try {
-    [sitio, obras, categorias] = await Promise.all([api('/api/sitio'), api('/api/obras'), api('/api/categorias')]);
+    // Una sola petición con todo lo que necesita la página.
+    ({ sitio, obras, categorias } = await api('/api/publico'));
   } catch (error) {
     console.error(error);
     $('#rejilla').replaceChildren();
@@ -33,9 +22,11 @@ async function iniciar() {
     return;
   }
 
-  const visor = crearVisor({ alVer: registrarVista });
+  const visor = crearVisor({});
   const abrirObra = (obra, lista) => visor.abrir(obra, lista);
 
+  // El título de la pestaña sigue al nombre y al lema elegidos en el panel.
+  document.title = [sitio.nombre_sitio, sitio.lema].filter(Boolean).join(' · ');
   rellenarTextos(sitio);
   pintarHeroe({ sitio, obras, abrirObra });
   crearGaleria({ obras, categorias, alAbrir: abrirObra });

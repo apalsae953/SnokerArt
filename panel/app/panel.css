@@ -352,7 +352,7 @@ button { cursor: pointer; }
   text-align: center;
 }
 
-/* Listas compactas (más vistas, recientes) */
+/* Listas compactas (subidas recientes) */
 .lista-compacta {
   display: flex;
   flex-direction: column;
@@ -697,7 +697,7 @@ button.fila-compacta:hover { background: var(--panel-2); }
 .cabecera-tabla,
 .fila-obra {
   display: grid;
-  grid-template-columns: 28px 64px minmax(0, 2.2fr) minmax(0, 1fr) 90px 60px 150px 136px;
+  grid-template-columns: 28px 64px minmax(0, 2.2fr) minmax(0, 1fr) 90px 150px 136px;
   align-items: center;
   gap: 14px;
   padding: 10px 14px;
@@ -1083,7 +1083,7 @@ code {
    -------------------------------------------------------------------------- */
 @media (max-width: 1180px) {
   .cabecera-tabla,
-  .fila-obra { grid-template-columns: 28px 56px minmax(0, 2fr) minmax(0, 1fr) 56px 150px 136px; }
+  .fila-obra { grid-template-columns: 28px 56px minmax(0, 2fr) minmax(0, 1fr) 150px 136px; }
   .col-tecnica { display: none; }
   .cifras { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .col-8, .col-4 { grid-column: span 12; }
@@ -1120,7 +1120,6 @@ code {
   .fila-obra > .obra-nombre { grid-area: nombre; }
   .fila-obra > .col-categoria { grid-area: meta; }
   .fila-obra > .col-tecnica,
-  .fila-obra > .col-vistas,
   .fila-obra > .col-estado { display: none; }
   .fila-obra > .acciones-fila { grid-area: acciones; grid-row: 1 / span 2; }
   .fila-categoria { grid-template-columns: 24px minmax(0, 1fr) auto; }

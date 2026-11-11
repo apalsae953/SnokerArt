@@ -1,36 +1,35 @@
 // API privada del panel. Todas las rutas exigen sesión iniciada y que la
-// petición venga de la propia web.
+// petición venga de la propia web. Los cambios se guardan en contenido.json
+// con modificar(), que evita que dos guardados se pisen.
 import { Router } from 'express';
 import multer from 'multer';
 import {
-  db,
   ahora,
-  transaccion,
-  listarObras,
-  obtenerObra,
-  filaObra,
-  listarCategorias,
-  leerAjustes,
-  guardarAjustes,
+  modificar,
+  leerContenido,
+  obrasOrdenadas,
+  categoriasConCuenta,
+  formatearObra,
+  siguienteId,
   slugUnico,
-} from '../db.js';
-import {
-  requiereSesion,
-  mismoOrigen,
-  verificarPassword,
-  hashAdmin,
-  validarPasswordNueva,
-  guardarPasswordAdmin,
-  listarSesiones,
-  cerrarOtrasSesiones,
-} from '../auth.js';
-import { procesarImagen, borrarArchivos, espacioUsado, ErrorImagen } from '../imagenes.js';
+  TECNICAS,
+  AJUSTES_POR_DEFECTO,
+} from '../contenido.js';
+import { requiereSesion, mismoOrigen, crearSesion } from '../auth.js';
+import { guardarImagen, borrarImagenes, ErrorImagen } from '../imagenes.js';
+import { usandoBlob } from '../almacen.js';
 import { config } from '../config.js';
 
 export const rutasPanel = Router();
 rutasPanel.use(requiereSesion, mismoOrigen);
 rutasPanel.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
+  // En Vercel el disco es de solo lectura: sin Vercel Blob no se puede guardar.
+  if (config.enVercel && !usandoBlob && !['GET', 'HEAD'].includes(req.method)) {
+    return res.status(503).json({
+      error: 'Falta conectar el almacén Vercel Blob al proyecto (pestaña Storage en Vercel). Sin él no se pueden guardar cambios.',
+    });
+  }
   next();
 });
 
@@ -39,13 +38,12 @@ const subida = multer({
   limits: { fileSize: config.maxBytesSubida, files: 1, fields: 20 },
 });
 
-export const TECNICAS = ['pixel-art', '2d', '3d', 'otra'];
-
 // ---------------------------------------------------------------------------
 // Validación de campos
 // ---------------------------------------------------------------------------
 
 class ErrorValidacion extends Error {}
+class NoEncontrado extends Error {}
 
 const comoBooleano = (v) => v === true || v === 1 || ['1', 'true', 'on', 'si', 'sí'].includes(String(v).toLowerCase());
 
@@ -74,99 +72,79 @@ function leerEtiquetas(valor) {
   return unicas.slice(0, 12);
 }
 
-function leerCategoria(valor) {
-  if (valor === null || valor === undefined || valor === '' || valor === 'null') return null;
-  const id = Number(valor);
-  if (!Number.isInteger(id) || !db.prepare('SELECT 1 FROM categorias WHERE id = ?').get(id)) {
-    throw new ErrorValidacion('La categoría no existe.');
-  }
-  return id;
-}
-
-// Lee y valida los campos editables de una obra. En modo parcial solo
-// devuelve los campos que vienen en la petición.
-function camposObra(cuerpo, { parcial = false } = {}) {
-  const c = {};
-  const viene = (clave) => !parcial || Object.prototype.hasOwnProperty.call(cuerpo, clave);
-
-  if (viene('titulo')) c.titulo = texto(cuerpo.titulo, { campo: 'El título', max: 120, obligatorio: true });
-  if (viene('descripcion')) c.descripcion = texto(cuerpo.descripcion, { campo: 'La descripción', max: 2000 });
-  if (viene('categoria_id')) c.categoria_id = leerCategoria(cuerpo.categoria_id);
-  if (viene('tecnica')) {
-    const tecnica = String(cuerpo.tecnica || 'pixel-art');
-    if (!TECNICAS.includes(tecnica)) throw new ErrorValidacion('Técnica no válida.');
-    c.tecnica = tecnica;
-  }
-  if (viene('etiquetas')) c.etiquetas = JSON.stringify(leerEtiquetas(cuerpo.etiquetas ?? []));
-  for (const clave of ['publicada', 'destacada', 'descargable']) {
-    if (viene(clave)) c[clave] = comoBooleano(cuerpo[clave]) ? 1 : 0;
-  }
-  // "pixelado" es opcional: si no se indica al subir, se usa lo detectado.
-  if (Object.prototype.hasOwnProperty.call(cuerpo, 'pixelado') && cuerpo.pixelado !== '') {
-    c.pixelado = comoBooleano(cuerpo.pixelado) ? 1 : 0;
-  }
-  return c;
-}
-
 function idValido(valor) {
   const id = Number(valor);
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-// Datos de configuración que el panel necesita conocer.
+// Lee y valida los campos editables de una obra. En modo parcial solo
+// devuelve los campos que vienen en la petición.
+function camposObra(cuerpo, categorias, { parcial = false } = {}) {
+  const c = {};
+  const viene = (clave) => !parcial || Object.prototype.hasOwnProperty.call(cuerpo, clave);
+
+  if (viene('titulo')) c.titulo = texto(cuerpo.titulo, { campo: 'El título', max: 120, obligatorio: true });
+  if (viene('descripcion')) c.descripcion = texto(cuerpo.descripcion, { campo: 'La descripción', max: 2000 });
+  if (viene('categoria_id')) {
+    const valor = cuerpo.categoria_id;
+    if (valor === null || valor === undefined || valor === '' || valor === 'null') c.categoria_id = null;
+    else {
+      const id = idValido(valor);
+      if (!id || !categorias.some((cat) => cat.id === id)) throw new ErrorValidacion('La categoría no existe.');
+      c.categoria_id = id;
+    }
+  }
+  if (viene('tecnica')) {
+    const tecnica = String(cuerpo.tecnica || 'pixel-art');
+    if (!TECNICAS.includes(tecnica)) throw new ErrorValidacion('Técnica no válida.');
+    c.tecnica = tecnica;
+  }
+  if (viene('etiquetas')) c.etiquetas = leerEtiquetas(cuerpo.etiquetas ?? []);
+  for (const clave of ['publicada', 'destacada', 'descargable']) {
+    if (viene(clave)) c[clave] = comoBooleano(cuerpo[clave]);
+  }
+  // "pixelado" es opcional: si no se indica al subir, se usa lo detectado.
+  if (Object.prototype.hasOwnProperty.call(cuerpo, 'pixelado') && cuerpo.pixelado !== '') {
+    c.pixelado = comoBooleano(cuerpo.pixelado);
+  }
+  return c;
+}
+
+function buscarObra(datos, id) {
+  const obra = datos.obras.find((o) => o.id === id);
+  if (!obra) throw new NoEncontrado('Obra no encontrada.');
+  return obra;
+}
+
+// ---------------------------------------------------------------------------
+// Información y resumen
+// ---------------------------------------------------------------------------
+
 rutasPanel.get('/info', (req, res) => {
   res.json({
     max_bytes_subida: config.maxBytesSubida,
     ruta_panel: config.rutaPanel,
+    almacen: usandoBlob ? 'blob' : 'local',
+    en_vercel: config.enVercel,
     tecnicas: TECNICAS,
-    formatos: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
   });
 });
 
-// ---------------------------------------------------------------------------
-// Resumen (estadísticas del inicio del panel)
-// ---------------------------------------------------------------------------
-
 rutasPanel.get('/resumen', async (req, res) => {
-  const totales = db
-    .prepare(
-      `SELECT COUNT(*) AS total,
-              COALESCE(SUM(publicada), 0) AS publicadas,
-              COALESCE(SUM(destacada), 0) AS destacadas,
-              COALESCE(SUM(vistas), 0) AS vistas
-       FROM obras`
-    )
-    .get();
-
-  // Vistas de los últimos 30 días, rellenando con 0 los días sin visitas.
-  const dias = 30;
-  const inicio = new Date(Date.now() - (dias - 1) * 86400000).toISOString().slice(0, 10);
-  const porDia = new Map(
-    db
-      .prepare('SELECT fecha, SUM(total) AS total FROM vistas_diarias WHERE fecha >= ? GROUP BY fecha')
-      .all(inicio)
-      .map((f) => [f.fecha, f.total])
-  );
-  const vistas30 = [];
-  for (let i = dias - 1; i >= 0; i--) {
-    const fecha = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-    vistas30.push({ fecha, total: porDia.get(fecha) || 0 });
-  }
-
-  const obras = listarObras();
-  const masVistas = [...obras].sort((a, b) => b.vistas - a.vistas).slice(0, 5);
-  const recientes = [...obras].sort((a, b) => b.creado.localeCompare(a.creado)).slice(0, 6);
-  const porTecnica = TECNICAS.map((t) => ({ tecnica: t, total: obras.filter((o) => o.tecnica === t).length }));
-
+  const datos = await leerContenido({ fresco: true });
+  const obras = obrasOrdenadas(datos);
+  const publicadas = obras.filter((o) => o.publicada).length;
   res.json({
-    totales: { ...totales, borradores: totales.total - totales.publicadas },
-    vistas30,
-    vistas_periodo: vistas30.reduce((s, d) => s + d.total, 0),
-    mas_vistas: masVistas,
-    recientes,
-    por_tecnica: porTecnica,
-    categorias: listarCategorias(),
-    espacio: await espacioUsado(),
+    totales: {
+      total: obras.length,
+      publicadas,
+      borradores: obras.length - publicadas,
+      destacadas: obras.filter((o) => o.destacada).length,
+    },
+    recientes: [...obras].sort((a, b) => b.creado.localeCompare(a.creado)).slice(0, 6),
+    por_tecnica: TECNICAS.map((t) => ({ tecnica: t, total: obras.filter((o) => o.tecnica === t).length })),
+    categorias: categoriasConCuenta(datos),
+    espacio: obras.reduce((suma, o) => suma + (o.peso || 0), 0),
   });
 });
 
@@ -174,122 +152,115 @@ rutasPanel.get('/resumen', async (req, res) => {
 // Obras
 // ---------------------------------------------------------------------------
 
-rutasPanel.get('/obras', (req, res) => {
-  res.json(listarObras());
+rutasPanel.get('/obras', async (req, res) => {
+  res.json(obrasOrdenadas(await leerContenido({ fresco: true })));
 });
 
 rutasPanel.post('/obras', subida.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se ha recibido ninguna imagen.' });
   const cuerpo = { ...req.body };
   if (!cuerpo.titulo) cuerpo.titulo = 'Sin título';
-  const campos = camposObra(cuerpo);
-  const imagen = await procesarImagen(req.file.buffer);
 
-  // Las obras nuevas aparecen las primeras en la galería.
-  const { minimo } = db.prepare('SELECT COALESCE(MIN(orden), 0) AS minimo FROM obras').get();
-  const momento = ahora();
-  const datos = {
-    ...campos,
-    slug: slugUnico('obras', campos.titulo),
-    archivo: imagen.archivo,
-    miniatura: imagen.miniatura,
-    ancho: imagen.ancho,
-    alto: imagen.alto,
-    formato: imagen.formato,
-    peso: imagen.peso,
-    escala: imagen.escala,
-    pixelado: campos.pixelado ?? (imagen.pixelado ? 1 : 0),
-    transparente: imagen.transparente ? 1 : 0,
-    animado: imagen.animado ? 1 : 0,
-    paleta: JSON.stringify(imagen.paleta),
-    num_colores: imagen.num_colores,
-    orden: minimo - 1,
-    creado: momento,
-    actualizado: momento,
-  };
-  const columnas = Object.keys(datos);
-  const resultado = db
-    .prepare(`INSERT INTO obras (${columnas.join(', ')}) VALUES (${columnas.map(() => '?').join(', ')})`)
-    .run(...Object.values(datos));
+  // Primero se valida con los datos actuales para no subir la imagen en balde.
+  camposObra(cuerpo, (await leerContenido({ fresco: true })).categorias);
+  const imagen = await guardarImagen(req.file.buffer);
 
-  res.status(201).json(obtenerObra(Number(resultado.lastInsertRowid)));
+  try {
+    const obra = await modificar((datos) => {
+      const campos = camposObra(cuerpo, datos.categorias);
+      const momento = ahora();
+      const nueva = {
+        id: siguienteId(datos.obras),
+        slug: slugUnico(datos.obras, campos.titulo),
+        titulo: campos.titulo,
+        descripcion: campos.descripcion,
+        categoria_id: campos.categoria_id,
+        tecnica: campos.tecnica,
+        etiquetas: campos.etiquetas,
+        ...imagen,
+        pixelado: campos.pixelado ?? imagen.pixelado,
+        destacada: campos.destacada,
+        publicada: campos.publicada,
+        descargable: campos.descargable,
+        // Las obras nuevas aparecen las primeras en la galería.
+        orden: datos.obras.reduce((min, o) => Math.min(min, o.orden), 0) - 1,
+        creado: momento,
+        actualizado: momento,
+      };
+      datos.obras.push(nueva);
+      return formatearObra(nueva, datos.categorias);
+    });
+    res.status(201).json(obra);
+  } catch (error) {
+    // Si no se pudo guardar, la imagen subida sobra.
+    await borrarImagenes(imagen.archivo, imagen.miniatura);
+    throw error;
+  }
 });
 
-rutasPanel.patch('/obras/:id', (req, res) => {
+rutasPanel.patch('/obras/:id', async (req, res) => {
   const id = idValido(req.params.id);
-  const fila = id && filaObra(id);
-  if (!fila) return res.status(404).json({ error: 'Obra no encontrada.' });
-
-  const campos = camposObra(req.body || {}, { parcial: true });
-  if (campos.titulo && campos.titulo !== fila.titulo) campos.slug = slugUnico('obras', campos.titulo, id);
-  if (Object.keys(campos).length === 0) return res.json(obtenerObra(id));
-
-  campos.actualizado = ahora();
-  const sets = Object.keys(campos).map((k) => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE obras SET ${sets} WHERE id = ?`).run(...Object.values(campos), id);
-  res.json(obtenerObra(id));
+  const obra = await modificar((datos) => {
+    const actual = buscarObra(datos, id);
+    const campos = camposObra(req.body || {}, datos.categorias, { parcial: true });
+    if (campos.titulo && campos.titulo !== actual.titulo) campos.slug = slugUnico(datos.obras, campos.titulo, id);
+    Object.assign(actual, campos, { actualizado: ahora() });
+    return formatearObra(actual, datos.categorias);
+  });
+  res.json(obra);
 });
 
-// Sustituye la imagen de una obra manteniendo sus textos, vistas y orden.
+// Sustituye la imagen de una obra manteniendo sus textos y su orden.
 rutasPanel.put('/obras/:id/archivo', subida.single('archivo'), async (req, res) => {
   const id = idValido(req.params.id);
-  const fila = id && filaObra(id);
-  if (!fila) return res.status(404).json({ error: 'Obra no encontrada.' });
   if (!req.file) return res.status(400).json({ error: 'No se ha recibido ninguna imagen.' });
+  buscarObra(await leerContenido({ fresco: true }), id);
+  const imagen = await guardarImagen(req.file.buffer);
 
-  const imagen = await procesarImagen(req.file.buffer);
-  db.prepare(
-    `UPDATE obras SET archivo = ?, miniatura = ?, ancho = ?, alto = ?, formato = ?, peso = ?, escala = ?,
-       pixelado = ?, transparente = ?, animado = ?, paleta = ?, num_colores = ?, actualizado = ?
-     WHERE id = ?`
-  ).run(
-    imagen.archivo,
-    imagen.miniatura,
-    imagen.ancho,
-    imagen.alto,
-    imagen.formato,
-    imagen.peso,
-    imagen.escala,
-    imagen.pixelado ? 1 : 0,
-    imagen.transparente ? 1 : 0,
-    imagen.animado ? 1 : 0,
-    JSON.stringify(imagen.paleta),
-    imagen.num_colores,
-    ahora(),
-    id
-  );
-  await borrarArchivos(fila.archivo, fila.miniatura);
-  res.json(obtenerObra(id));
+  let anteriores = [];
+  try {
+    const obra = await modificar((datos) => {
+      const actual = buscarObra(datos, id);
+      anteriores = [actual.archivo, actual.miniatura];
+      Object.assign(actual, imagen, { actualizado: ahora() });
+      return formatearObra(actual, datos.categorias);
+    });
+    await borrarImagenes(...anteriores);
+    res.json(obra);
+  } catch (error) {
+    await borrarImagenes(imagen.archivo, imagen.miniatura);
+    throw error;
+  }
 });
 
 rutasPanel.delete('/obras/:id', async (req, res) => {
   const id = idValido(req.params.id);
-  const fila = id && filaObra(id);
-  if (!fila) return res.status(404).json({ error: 'Obra no encontrada.' });
-
-  db.prepare('DELETE FROM obras WHERE id = ?').run(id);
-  // Si era la portada o el avatar, se deja vacío para que la web use otra.
-  const ajustes = leerAjustes();
-  const cambios = {};
-  if (ajustes.obra_portada === String(id)) cambios.obra_portada = '';
-  if (ajustes.obra_avatar === String(id)) cambios.obra_avatar = '';
-  if (Object.keys(cambios).length) guardarAjustes(cambios);
-
-  await borrarArchivos(fila.archivo, fila.miniatura);
+  let borrada;
+  await modificar((datos) => {
+    borrada = buscarObra(datos, id);
+    datos.obras = datos.obras.filter((o) => o.id !== id);
+    // Si era la portada o el avatar, se deja vacío para que la web elija otra.
+    if (datos.ajustes.obra_portada === String(id)) datos.ajustes.obra_portada = '';
+    if (datos.ajustes.obra_avatar === String(id)) datos.ajustes.obra_avatar = '';
+  });
+  await borrarImagenes(borrada.archivo, borrada.miniatura);
   res.json({ ok: true });
 });
 
 // Recibe la lista de ids en el orden deseado.
-function reordenar(tabla, ids) {
-  if (!Array.isArray(ids) || ids.some((id) => !idValido(id))) {
-    throw new ErrorValidacion('Lista de orden no válida.');
-  }
-  const actualizar = db.prepare(`UPDATE ${tabla} SET orden = ? WHERE id = ?`);
-  transaccion(() => ids.forEach((id, i) => actualizar.run(i, Number(id))));
+function validarOrden(ids) {
+  if (!Array.isArray(ids) || ids.some((id) => !idValido(id))) throw new ErrorValidacion('Lista de orden no válida.');
+  return ids.map(Number);
 }
 
-rutasPanel.put('/orden/obras', (req, res) => {
-  reordenar('obras', req.body?.ids);
+rutasPanel.put('/orden/obras', async (req, res) => {
+  const ids = validarOrden(req.body?.ids);
+  await modificar((datos) => {
+    for (const obra of datos.obras) {
+      const posicion = ids.indexOf(obra.id);
+      if (posicion !== -1) obra.orden = posicion;
+    }
+  });
   res.json({ ok: true });
 });
 
@@ -297,84 +268,90 @@ rutasPanel.put('/orden/obras', (req, res) => {
 // Categorías
 // ---------------------------------------------------------------------------
 
-rutasPanel.get('/categorias', (req, res) => {
-  res.json(listarCategorias());
+rutasPanel.get('/categorias', async (req, res) => {
+  res.json(categoriasConCuenta(await leerContenido({ fresco: true })));
 });
 
-rutasPanel.post('/categorias', (req, res) => {
+rutasPanel.post('/categorias', async (req, res) => {
   const nombre = texto(req.body?.nombre, { campo: 'El nombre', max: 40, obligatorio: true });
   const descripcion = texto(req.body?.descripcion, { campo: 'La descripción', max: 200 });
-  const { maximo } = db.prepare('SELECT COALESCE(MAX(orden), -1) AS maximo FROM categorias').get();
-  db.prepare('INSERT INTO categorias (nombre, slug, descripcion, orden, creado) VALUES (?, ?, ?, ?, ?)').run(
-    nombre,
-    slugUnico('categorias', nombre),
-    descripcion,
-    maximo + 1,
-    ahora()
-  );
-  res.status(201).json(listarCategorias());
+  const lista = await modificar((datos) => {
+    datos.categorias.push({
+      id: siguienteId(datos.categorias),
+      nombre,
+      slug: slugUnico(datos.categorias, nombre),
+      descripcion,
+      orden: datos.categorias.reduce((max, c) => Math.max(max, c.orden), -1) + 1,
+      creado: ahora(),
+    });
+    return categoriasConCuenta(datos);
+  });
+  res.status(201).json(lista);
 });
 
-rutasPanel.patch('/categorias/:id', (req, res) => {
+rutasPanel.patch('/categorias/:id', async (req, res) => {
   const id = idValido(req.params.id);
-  if (!id || !db.prepare('SELECT 1 FROM categorias WHERE id = ?').get(id)) {
-    return res.status(404).json({ error: 'Categoría no encontrada.' });
-  }
-  if (req.body?.nombre !== undefined) {
-    const nombre = texto(req.body.nombre, { campo: 'El nombre', max: 40, obligatorio: true });
-    db.prepare('UPDATE categorias SET nombre = ?, slug = ? WHERE id = ?').run(nombre, slugUnico('categorias', nombre, id), id);
-  }
-  if (req.body?.descripcion !== undefined) {
-    const descripcion = texto(req.body.descripcion, { campo: 'La descripción', max: 200 });
-    db.prepare('UPDATE categorias SET descripcion = ? WHERE id = ?').run(descripcion, id);
-  }
-  res.json(listarCategorias());
+  const cambios = {};
+  if (req.body?.nombre !== undefined) cambios.nombre = texto(req.body.nombre, { campo: 'El nombre', max: 40, obligatorio: true });
+  if (req.body?.descripcion !== undefined) cambios.descripcion = texto(req.body.descripcion, { campo: 'La descripción', max: 200 });
+  const lista = await modificar((datos) => {
+    const categoria = datos.categorias.find((c) => c.id === id);
+    if (!categoria) throw new NoEncontrado('Categoría no encontrada.');
+    if (cambios.nombre) cambios.slug = slugUnico(datos.categorias, cambios.nombre, id);
+    Object.assign(categoria, cambios);
+    return categoriasConCuenta(datos);
+  });
+  res.json(lista);
 });
 
-rutasPanel.delete('/categorias/:id', (req, res) => {
+// Al borrar una categoría, sus obras se quedan sin categoría (no se borran).
+rutasPanel.delete('/categorias/:id', async (req, res) => {
   const id = idValido(req.params.id);
-  const cambios = id ? db.prepare('DELETE FROM categorias WHERE id = ?').run(id).changes : 0;
-  if (!cambios) return res.status(404).json({ error: 'Categoría no encontrada.' });
-  res.json(listarCategorias());
+  const lista = await modificar((datos) => {
+    if (!datos.categorias.some((c) => c.id === id)) throw new NoEncontrado('Categoría no encontrada.');
+    datos.categorias = datos.categorias.filter((c) => c.id !== id);
+    for (const obra of datos.obras) if (obra.categoria_id === id) obra.categoria_id = null;
+    return categoriasConCuenta(datos);
+  });
+  res.json(lista);
 });
 
-rutasPanel.put('/orden/categorias', (req, res) => {
-  reordenar('categorias', req.body?.ids);
-  res.json(listarCategorias());
+rutasPanel.put('/orden/categorias', async (req, res) => {
+  const ids = validarOrden(req.body?.ids);
+  const lista = await modificar((datos) => {
+    for (const categoria of datos.categorias) {
+      const posicion = ids.indexOf(categoria.id);
+      if (posicion !== -1) categoria.orden = posicion;
+    }
+    return categoriasConCuenta(datos);
+  });
+  res.json(lista);
 });
 
 // ---------------------------------------------------------------------------
 // Ajustes de la web
 // ---------------------------------------------------------------------------
 
-const REDES = ['artstation', 'itchio', 'instagram', 'x', 'bluesky', 'youtube', 'github', 'web'];
+const REDES = Object.keys(AJUSTES_POR_DEFECTO.redes);
 
 function validarUrl(valor, nombre) {
   const limpio = String(valor || '').trim();
   if (!limpio) return '';
   try {
     const url = new URL(limpio);
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
-    if (limpio.length > 300) throw new Error();
+    if (!['http:', 'https:'].includes(url.protocol) || limpio.length > 300) throw new Error();
     return url.toString();
   } catch {
     throw new ErrorValidacion(`El enlace de ${nombre} no es válido. Debe empezar por https://`);
   }
 }
 
-function validarObraReferencia(valor) {
-  const limpio = String(valor ?? '').trim();
-  if (!limpio) return '';
-  const id = idValido(limpio);
-  if (!id || !filaObra(id)) throw new ErrorValidacion('La obra elegida no existe.');
-  return String(id);
-}
-
-rutasPanel.get('/ajustes', (req, res) => {
-  res.json(leerAjustes());
+rutasPanel.get('/ajustes', async (req, res) => {
+  const { version_sesion, ...ajustes } = (await leerContenido({ fresco: true })).ajustes;
+  res.json(ajustes);
 });
 
-rutasPanel.put('/ajustes', (req, res) => {
+rutasPanel.put('/ajustes', async (req, res) => {
   const b = req.body || {};
   const cambios = {};
   const textos = {
@@ -395,41 +372,38 @@ rutasPanel.put('/ajustes', (req, res) => {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ErrorValidacion('El email no es válido.');
     cambios.email = email;
   }
-  if (b.abierto_encargos !== undefined) cambios.abierto_encargos = comoBooleano(b.abierto_encargos) ? '1' : '0';
+  if (b.abierto_encargos !== undefined) cambios.abierto_encargos = comoBooleano(b.abierto_encargos);
   if (b.redes !== undefined) {
-    const redes = {};
-    for (const red of REDES) redes[red] = validarUrl(b.redes?.[red], red);
-    cambios.redes = JSON.stringify(redes);
+    cambios.redes = Object.fromEntries(REDES.map((red) => [red, validarUrl(b.redes?.[red], red)]));
   }
-  if (b.obra_portada !== undefined) cambios.obra_portada = validarObraReferencia(b.obra_portada);
-  if (b.obra_avatar !== undefined) cambios.obra_avatar = validarObraReferencia(b.obra_avatar);
 
-  guardarAjustes(cambios);
-  res.json(leerAjustes());
+  const ajustes = await modificar((datos) => {
+    // Las obras de portada y avatar deben existir.
+    for (const clave of ['obra_portada', 'obra_avatar']) {
+      if (b[clave] === undefined) continue;
+      const valor = String(b[clave] ?? '').trim();
+      if (valor && !datos.obras.some((o) => String(o.id) === valor)) throw new ErrorValidacion('La obra elegida no existe.');
+      cambios[clave] = valor;
+    }
+    Object.assign(datos.ajustes, cambios);
+    const { version_sesion, ...visibles } = datos.ajustes;
+    return visibles;
+  });
+  res.json(ajustes);
 });
 
 // ---------------------------------------------------------------------------
-// Seguridad
+// Seguridad: cerrar la sesión en todos los demás dispositivos
 // ---------------------------------------------------------------------------
 
-rutasPanel.put('/password', (req, res) => {
-  const { actual, nueva } = req.body || {};
-  if (typeof actual !== 'string' || !verificarPassword(actual, hashAdmin())) {
-    return res.status(400).json({ error: 'La contraseña actual no es correcta.' });
-  }
-  const problema = validarPasswordNueva(nueva);
-  if (problema) return res.status(400).json({ error: problema });
-  guardarPasswordAdmin(nueva);
-  const cerradas = cerrarOtrasSesiones(req.sesion);
-  res.json({ ok: true, sesiones_cerradas: cerradas });
-});
-
-rutasPanel.get('/sesiones', (req, res) => {
-  res.json(listarSesiones(req.sesion));
-});
-
-rutasPanel.delete('/sesiones/otras', (req, res) => {
-  res.json({ ok: true, cerradas: cerrarOtrasSesiones(req.sesion) });
+rutasPanel.post('/sesiones/cerrar-todas', async (req, res) => {
+  const version = await modificar((datos) => {
+    datos.ajustes.version_sesion = (Number(datos.ajustes.version_sesion) || 1) + 1;
+    return datos.ajustes.version_sesion;
+  });
+  // Quien lo pide sigue dentro con una sesión nueva.
+  crearSesion(res, version);
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -440,10 +414,11 @@ rutasPanel.use((error, req, res, next) => {
   if (error instanceof ErrorValidacion || error instanceof ErrorImagen) {
     return res.status(400).json({ error: error.message });
   }
+  if (error instanceof NoEncontrado) return res.status(404).json({ error: error.message });
   if (error instanceof multer.MulterError) {
     const mensaje =
       error.code === 'LIMIT_FILE_SIZE'
-        ? `La imagen pesa demasiado (máximo ${Math.round(config.maxBytesSubida / 1048576)} MB).`
+        ? `La imagen pesa demasiado (máximo ${(config.maxBytesSubida / 1048576).toFixed(1).replace('.', ',')} MB).`
         : 'No se pudo leer el archivo subido.';
     return res.status(400).json({ error: mensaje });
   }

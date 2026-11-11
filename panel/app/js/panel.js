@@ -114,9 +114,12 @@ async function iniciar() {
   });
 
   try {
-    const [info, sitio] = await Promise.all([api('/info'), fetch('/api/sitio').then((r) => r.json())]);
+    const [info, ajustes] = await Promise.all([api('/info'), api('/ajustes')]);
     contexto.info = info;
-    $('#marca-nombre').textContent = sitio.nombre_sitio;
+    $('#marca-nombre').textContent = ajustes.nombre_sitio;
+    if (info.en_vercel && info.almacen !== 'blob') {
+      avisoError(new Error('Falta conectar Vercel Blob al proyecto: podrás ver el panel, pero no guardar cambios.'));
+    }
   } catch (error) {
     avisoError(error);
   }

@@ -81,7 +81,6 @@ export function crearGaleria({ obras, categorias, alAbrir }) {
     const ordenes = {
       artista: () => 0,
       recientes: (a, b) => b.creado.localeCompare(a.creado),
-      vistas: (a, b) => b.vistas - a.vistas,
       titulo: (a, b) => a.titulo.localeCompare(b.titulo, 'es'),
     };
     lista = [...lista].sort(ordenes[filtros.orden] || ordenes.artista);
