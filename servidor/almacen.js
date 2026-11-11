@@ -171,6 +171,20 @@ function almacenBlob() {
         const recordado = await leerUltimoGuardado(ruta);
         if (recordado) return recordado;
       }
+      // En el almacén privado, la etiqueta de versión (ETag) se pide a la API
+      // con head(), como recomienda Vercel: la lectura sin caché no siempre la
+      // trae igual. Se pide ANTES de leer el archivo, así el archivo nunca es
+      // más antiguo que la etiqueta (si alguien guarda entre medias, el
+      // guardado con esa etiqueta falla y se repite, sin perder nada).
+      let versionApi = null;
+      if (fresco && privado) {
+        try {
+          versionApi = (await head(ruta, credenciales)).etag;
+        } catch {
+          rutaContenido = null;
+          return null;
+        }
+      }
       // Con almacén privado, useCache: false lee siempre la última versión.
       // (Con almacén público Vercel ignora esta opción.)
       const resultado = await get(ruta, { ...acceso, useCache: !fresco });
@@ -179,11 +193,17 @@ function almacenBlob() {
         return null;
       }
       const texto = await new Response(resultado.stream).text();
-      return { datos: JSON.parse(texto), etag: resultado.blob.etag };
+      if (versionApi && resultado.blob.etag !== versionApi) {
+        console.warn('[almacen] La lectura trae otra etiqueta que head():', JSON.stringify(resultado.blob.etag), JSON.stringify(versionApi));
+      }
+      const etag = versionApi || resultado.blob.etag;
+      if (!etag) throw new Error('Vercel Blob no ha devuelto la versión de contenido.json.');
+      return { datos: JSON.parse(texto), etag };
     },
 
     async guardarContenido(datos, etagEsperado) {
-      const creando = !etagEsperado;
+      // Solo se crea el archivo cuando se pide expresamente (etag null).
+      const creando = etagEsperado == null;
       let ruta = await localizarContenido();
       if (creando && ruta) throw new ConflictoAlmacen('El contenido ya existe.');
       if (!ruta) ruta = `${PREFIJO_CONTENIDO}${crypto.randomBytes(16).toString('hex')}.json`;
@@ -201,7 +221,10 @@ function almacenBlob() {
         ultimoGuardado = { ruta, etag: resultado.etag, texto };
         return resultado.etag;
       } catch (error) {
-        if (error instanceof BlobPreconditionFailedError) throw new ConflictoAlmacen('El contenido ha cambiado.');
+        if (error instanceof BlobPreconditionFailedError) {
+          console.warn('[almacen] Vercel rechaza el guardado: la versión ha cambiado.', JSON.stringify(etagEsperado), error.message);
+          throw new ConflictoAlmacen('El contenido ha cambiado.');
+        }
         // Al crear: si otro proceso lo creó a la vez, también es un conflicto.
         if (creando && /exist/i.test(error.message)) throw new ConflictoAlmacen('El contenido ya existe.');
         throw error;

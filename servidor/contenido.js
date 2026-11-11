@@ -175,6 +175,7 @@ export async function modificar(cambiar) {
       return resultado;
     } catch (error) {
       if (!(error instanceof ConflictoAlmacen)) throw error;
+      console.warn(`[contenido] Guardado repetido (intento ${intento + 1}): ${error.message}`);
       await esperar(200 * (intento + 1));
     }
   }
