@@ -3,7 +3,8 @@
 Web para mostrar arte de videojuegos (pixel art, 2D y 3D) con un panel privado
 desde el que se sube y gestiona todo. **No usa base de datos**: las imágenes y
 un archivo `contenido.json` (títulos, categorías, textos de la web) se guardan
-en **Vercel Blob** cuando está publicada, o en carpetas normales en tu PC.
+en **Vercel Blob** cuando está publicada (las imágenes en un almacén público y
+`contenido.json` en uno privado), o en carpetas normales en tu PC.
 
 - **Web pública**: portada con el nombre en grande y tus sprites flotando encima
   como objetos recogibles, galería con filtros y búsqueda, sección de destacadas
@@ -17,13 +18,21 @@ en **Vercel Blob** cuando está publicada, o en carpetas normales en tu PC.
 ## Publicar en Vercel
 
 La web ya está preparada (`vercel.json` y `api/index.js`). En tu proyecto de
-Vercel solo hacen falta dos cosas, una única vez:
+Vercel solo hacen falta tres cosas, una única vez (mejor todo en la región
+**Paris, cdg1**, que es donde corre la web):
 
 1. **Almacén de imágenes**: pestaña **Storage**, crear un **Blob** con acceso
-   **Public** (mejor en la región **Paris, cdg1**, que es donde corre la web) y
-   conectarlo al proyecto. Vercel añade solo la variable `BLOB_READ_WRITE_TOKEN`.
-2. **Contraseña del panel**: **Settings > Environment Variables**, añadir
-   `CLAVE_PANEL` con tu contraseña (mínimo 10 caracteres).
+   **Public** y conectarlo al proyecto con el prefijo `BLOB` (el que viene) y
+   la casilla **"Add a read-write token env var"** marcada. Así se crea
+   `BLOB_READ_WRITE_TOKEN`.
+2. **Almacén de datos**: crear otro **Blob**, esta vez **Private**, y
+   conectarlo con el prefijo `DATOS` y la misma casilla marcada. Se crea
+   `DATOS_READ_WRITE_TOKEN`. Hace falta porque Vercel guarda en caché los
+   archivos públicos y, después de cambiarlos, puede seguir dando la versión
+   anterior hasta un minuto; en uno privado siempre se lee la última versión.
+3. **Contraseña del panel**: **Settings > Environment Variables**, añadir
+   `CLAVE_PANEL` con tu contraseña (mínimo 10 caracteres), tipo **Secret** y
+   entorno **Production**.
 
 Después, cada vez que subes cambios a GitHub, Vercel publica la web solo. Si
 cambias una variable, pulsa **Redeploy** en el último despliegue.
@@ -65,7 +74,8 @@ Vercel, tu PC trabajará directamente sobre la web publicada.
 | Variable | Para qué sirve |
 | --- | --- |
 | `CLAVE_PANEL` | Contraseña del panel (mínimo 10 caracteres). Obligatoria. |
-| `BLOB_READ_WRITE_TOKEN` | La añade Vercel al conectar el Blob. Con ella se usa Vercel Blob. |
+| `BLOB_READ_WRITE_TOKEN` | La añade Vercel al conectar el Blob público. Con ella se usa Vercel Blob. |
+| `DATOS_READ_WRITE_TOKEN` | La añade Vercel al conectar el Blob privado con el prefijo `DATOS`. Ahí va `contenido.json`. |
 | `RUTA_PANEL` | Ruta secreta del panel, por ejemplo `/taller-snoker-8f3k`. Por defecto `/panel`. |
 | `PUERTO` | Puerto en tu PC (por defecto 3000). |
 | `MAX_MB_SUBIDA` | Tamaño máximo por imagen en tu PC. |
@@ -81,8 +91,8 @@ Vercel, tu PC trabajará directamente sobre la web publicada.
   tarda casi un segundo en responder.
 - Las peticiones que cambian datos se rechazan si vienen de otra web.
 - Sin sesión, el código del panel ni siquiera se descarga.
-- `contenido.json` se guarda en Vercel Blob con un nombre aleatorio que no se
-  puede adivinar (incluye los borradores).
+- `contenido.json` (que incluye los borradores) se guarda en un almacén
+  privado: solo el servidor puede leerlo.
 - Dos guardados a la vez nunca se pisan: cada cambio comprueba la versión del
   archivo antes de escribir y, si otro se adelantó, se repite con los datos
   nuevos.

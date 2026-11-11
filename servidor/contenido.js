@@ -88,6 +88,36 @@ async function semillaDeLectura() {
   return datos;
 }
 
+// Contenido de una versión anterior de la web que todavía no se ha pasado al
+// almacén privado (null si no hay o no se puede leer).
+async function contenidoAnterior() {
+  try {
+    const anterior = await almacen.leerContenidoAnterior();
+    return anterior ? normalizar(anterior) : null;
+  } catch (error) {
+    console.error('[contenido] No se ha podido leer el contenido anterior:', error);
+    return null;
+  }
+}
+
+// Primer guardado con el almacén vacío: se parte del contenido anterior si lo
+// hay (y se borra su copia antigua) o, si no, de la semilla.
+async function importarInicial() {
+  const anterior = await contenidoAnterior();
+  if (!anterior) return importarSemilla();
+  try {
+    await almacen.guardarContenido(anterior, null);
+  } catch (error) {
+    // Si otro proceso lo pasó al mismo tiempo, no pasa nada.
+    if (!(error instanceof ConflictoAlmacen)) throw error;
+  }
+  try {
+    await almacen.borrarContenidoAnterior();
+  } catch (error) {
+    console.error('[contenido] No se ha podido borrar la copia anterior:', error);
+  }
+}
+
 // Copia la semilla al almacén la primera vez que se guarda algo.
 async function importarSemilla() {
   const semilla = await leerSemilla();
@@ -117,10 +147,11 @@ async function importarSemilla() {
 let cache = null;
 const DURACION_CACHE = 8000;
 
+// fresco: true lee la última versión guardada (el panel lo usa siempre).
 export async function leerContenido({ fresco = false } = {}) {
   if (!fresco && cache && Date.now() - cache.momento < DURACION_CACHE) return cache.datos;
-  const leido = await almacen.leerContenido();
-  const datos = leido ? normalizar(leido.datos) : await semillaDeLectura();
+  const leido = await almacen.leerContenido({ fresco });
+  const datos = leido ? normalizar(leido.datos) : (await contenidoAnterior()) || (await semillaDeLectura());
   cache = { datos, momento: Date.now() };
   return datos;
 }
@@ -131,9 +162,9 @@ export async function leerContenido({ fresco = false } = {}) {
 // los datos (subir o borrar archivos se hace antes o después).
 export async function modificar(cambiar) {
   for (let intento = 0; intento < 5; intento++) {
-    const leido = await almacen.leerContenido();
+    const leido = await almacen.leerContenido({ fresco: true });
     if (!leido) {
-      await importarSemilla();
+      await importarInicial();
       continue;
     }
     const datos = normalizar(structuredClone(leido.datos));
@@ -147,7 +178,9 @@ export async function modificar(cambiar) {
       await esperar(200 * (intento + 1));
     }
   }
-  throw new Error('No se han podido guardar los cambios porque se estaba guardando otra cosa a la vez. Inténtalo de nuevo.');
+  const error = new Error('No se han podido guardar los cambios porque se estaba guardando otra cosa a la vez. Inténtalo de nuevo en unos segundos.');
+  error.status = 409;
+  throw error;
 }
 
 // ---------------------------------------------------------------------------

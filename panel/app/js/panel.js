@@ -119,6 +119,8 @@ async function iniciar() {
     $('#marca-nombre').textContent = ajustes.nombre_sitio;
     if (info.en_vercel && info.almacen !== 'blob') {
       avisoError(new Error('Falta conectar Vercel Blob al proyecto: podrás ver el panel, pero no guardar cambios.'));
+    } else if (info.almacen === 'blob' && !info.datos_privados) {
+      avisoError(new Error('Falta el almacén privado de datos (prefijo DATOS): los cambios seguidos pueden tardar en guardarse.'));
     }
   } catch (error) {
     avisoError(error);

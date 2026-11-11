@@ -17,7 +17,7 @@ import {
 } from '../contenido.js';
 import { requiereSesion, mismoOrigen, crearSesion } from '../auth.js';
 import { guardarImagen, borrarImagenes, ErrorImagen } from '../imagenes.js';
-import { usandoBlob } from '../almacen.js';
+import { usandoBlob, almacen } from '../almacen.js';
 import { config } from '../config.js';
 
 export const rutasPanel = Router();
@@ -125,6 +125,7 @@ rutasPanel.get('/info', (req, res) => {
     max_bytes_subida: config.maxBytesSubida,
     ruta_panel: config.rutaPanel,
     almacen: usandoBlob ? 'blob' : 'local',
+    datos_privados: almacen.datosPrivados,
     en_vercel: config.enVercel,
     tecnicas: TECNICAS,
   });
@@ -415,6 +416,8 @@ rutasPanel.use((error, req, res, next) => {
     return res.status(400).json({ error: error.message });
   }
   if (error instanceof NoEncontrado) return res.status(404).json({ error: error.message });
+  // Guardados que chocan una y otra vez: se explica en lugar de un error genérico.
+  if (error.status === 409) return res.status(409).json({ error: error.message });
   if (error instanceof multer.MulterError) {
     const mensaje =
       error.code === 'LIMIT_FILE_SIZE'
